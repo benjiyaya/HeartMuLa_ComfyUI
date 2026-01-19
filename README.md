@@ -52,13 +52,13 @@ Use HuggingFace Cli donwload model weigths.
 
 type :
 
-hf download --local-dir './HeartMuLa' 'HeartMuLa/HeartMuLaGen'
+hf download HeartMuLa/HeartMuLaGen --local-dir './HeartMuLa'
 
-hf download --local-dir './HeartMuLa/HeartMuLa-oss-3B' 'HeartMuLa/HeartMuLa-oss-3B'
+hf download HeartMuLa/HeartMuLa-oss-3B --local-dir './HeartMuLa/HeartMuLa-oss-3B'
 
-hf download --local-dir './HeartMuLa/HeartCodec-oss' 'HeartMuLa/HeartCodec-oss'
+hf download HeartMuLa/HeartCodec-oss --local-dir './HeartMuLa/HeartCodec-oss'
 
-hf download --local-dir './HeartMuLa/HeartTranscriptor-oss' 'HeartMuLa/HeartTranscriptor-oss' 
+hf download HeartMuLa/HeartTranscriptor-oss --local-dir './HeartMuLa/HeartTranscriptor-oss'
 
 
 ------------------------------------------------------------
