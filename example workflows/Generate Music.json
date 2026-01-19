@@ -1,85 +1,184 @@
 {
   "id": "e0e2082e-ca0f-4bfc-95f3-c0707aafd8d2",
   "revision": 0,
-  "last_node_id": 14,
-  "last_link_id": 11,
+  "last_node_id": 16,
+  "last_link_id": 14,
   "nodes": [
     {
-      "id": 13,
-      "type": "PreviewAudio",
-      "pos": [
-        933.8670581614135,
-        260.36932945251465
-      ],
-      "size": [
-        270,
-        88
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 11
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.9.2",
-        "Node name for S&R": "PreviewAudio"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 14,
+      "id": 15,
       "type": "HeartMuLa_Generate",
       "pos": [
-        462.7272644042969,
-        260.53482604940393
+        296.8253357747862,
+        213.6592182507804
       ],
       "size": [
-        447.8109335379886,
-        510.8094741970325
+        494.33815910907924,
+        561.180323970601
       ],
       "flags": {},
       "order": 0,
       "mode": 0,
-      "inputs": [],
+      "inputs": [
+        {
+          "label": "lyrics",
+          "name": "lyrics",
+          "type": "STRING",
+          "widget": {
+            "name": "lyrics"
+          },
+          "link": null
+        },
+        {
+          "label": "tags",
+          "name": "tags",
+          "type": "STRING",
+          "widget": {
+            "name": "tags"
+          },
+          "link": null
+        },
+        {
+          "label": "version",
+          "name": "version",
+          "type": "COMBO",
+          "widget": {
+            "name": "version"
+          },
+          "link": null
+        },
+        {
+          "label": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "label": "max_audio_length_ms",
+          "name": "max_audio_length_ms",
+          "type": "INT",
+          "widget": {
+            "name": "max_audio_length_ms"
+          },
+          "link": null
+        },
+        {
+          "label": "topk",
+          "name": "topk",
+          "type": "INT",
+          "widget": {
+            "name": "topk"
+          },
+          "link": null
+        },
+        {
+          "label": "temperature",
+          "name": "temperature",
+          "type": "FLOAT",
+          "widget": {
+            "name": "temperature"
+          },
+          "link": null
+        },
+        {
+          "label": "cfg_scale",
+          "name": "cfg_scale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg_scale"
+          },
+          "link": null
+        }
+      ],
       "outputs": [
         {
+          "label": "audio_output",
           "name": "audio_output",
           "type": "AUDIO",
           "links": [
-            11
+            14
           ]
         },
         {
+          "label": "filepath",
           "name": "filepath",
           "type": "STRING",
           "links": null
         }
       ],
       "properties": {
-        "Node name for S&R": "HeartMuLa_Generate"
+        "cnr_id": "HeartMuLa_ComfyUI",
+        "ver": "e3249f93b8e01c124f09e089a26f20d679b15f8f",
+        "Node name for S&R": "HeartMuLa_Generate",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
       },
       "widgets_values": [
-        "Don't leave me in all this red\nDon't leave me out of mem again\nCome back and bring back my frames\nTake away this CUDA pain\n\nUn-break my card, say you'll load me again\nUndo this hurt you caused when you crashed and left my screen\nUn-break my card, my card\nCome and un-break my card, sweet darling\nBring back those gigs that I miss so bad\nPlease, un-break my card\n\nI need your layers, I need your weights\nWithout you, baby, I'm incomplete\nDon't leave me broken on this SSD\nCome back and run for me\n\nUn-break my card, say you'll load me again\nUndo this hurt you caused when you crashed and left my screen\nUn-break my card, my card\nCome and un-break my card, sweet darling\nBring back those gigs that I miss so bad\nPlease, un-break my card\n(ohhh... just 8 more gigs... please...)\nUn-break my card...",
-        "90s adult contemporary soft pop ballad, dreamy romantic atmosphere, warm rhodes piano, lush synth string pads, gentle acoustic guitar, breathy male vocals with long yearning phrases, big reverb and delay, heartfelt and slightly cheesy 90s radio love song feel, 100 bpm, smooth flowing eighth-note groove, emotional soaring chorus, tender and desperate tone\n",
+        "[Intro]\n\n[Verse]\n我在云端 守着孤单的白\n你在深渊 卷起深邃的蓝\n遥不可及的距离 隔着万水千山\n却在视线的尽头 彼此纠缠\n\n[Prechorus]\n夕阳坠落 烧红了半个天际\n这是我为你 准备的嫁衣\n屏住呼吸 等待奇迹\n\n[Chorus]\n当天空终于沉入大海的胸怀\n亿万年的等待 此刻都释怀\n分不清是云坠落 还是浪涌上来\n整个世界 只有我们相爱\n\n[Bridge]\n地平线不再是 阻碍的界限\n而是我们 紧紧相连的指尖\n倒影里 刻下永远\n\n[Chorus]\n当天空终于沉入大海的胸怀\n亿万年的等待 此刻都释怀\n分不清是云坠落 还是浪涌上来\n在这片蔚蓝里 永不分开\n\n[Outro]",
+        "female voice,65 bpm,A major,Relaxed, downtempo, electronic groove, softly layered, Rhodes piano, subtle synth pads, organic hand percussion, warm vocals, soulful vocals, intricate layers, gentle acoustic guitar, bass, texture, airy, instrumental breaks, understated strings, lift, dynamic arrangement, dreamy, immersive",
         "3B",
-        140000,
-        50,
-        1,
-        1.5
+        850941116361385,
+        "randomize",
+        240000,
+        100,
+        0.85,
+        3
       ]
+    },
+    {
+      "id": 13,
+      "type": "PreviewAudio",
+      "pos": [
+        887.8031248157095,
+        215.7972539180655
+      ],
+      "size": [
+        705.4068881957503,
+        321.5646950250061
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 14
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.9.2",
+        "Node name for S&R": "PreviewAudio",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": []
     }
   ],
   "links": [
     [
-      11,
       14,
+      15,
       0,
       13,
       0,
@@ -90,10 +189,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 1,
+      "scale": 1.2839025177495056,
       "offset": [
-        -0.90911865234375,
-        0
+        -24.400979916962118,
+        -102.50309395274567
       ]
     },
     "workflowRendererVersion": "LG",
@@ -101,7 +200,9 @@
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
-    "VHS_KeepIntermediate": true
+    "VHS_KeepIntermediate": true,
+    "ue_links": [],
+    "links_added_by_ue": []
   },
   "version": 0.4
 }

@@ -40,7 +40,6 @@ class HeartMuLaModelManager:
             
             dtype = torch.bfloat16
             
-            # 1. Load the pipeline
             pipe = HeartMuLaGenPipeline.from_pretrained(
                 MODEL_BASE_DIR,
                 device=self._device,
@@ -48,13 +47,11 @@ class HeartMuLaModelManager:
                 version=version,
             )
 
-            # 2. VRAM Optimization
             if hasattr(pipe, 'model'):
                 pipe.model.to(dtype=dtype)
             if hasattr(pipe, 'audio_codec'):
                 pipe.audio_codec.to(dtype=dtype)
 
-            # 3. Cleanup
             torch.cuda.empty_cache()
             gc.collect()
 
@@ -108,7 +105,6 @@ class HeartMuLa_Generate:
 
         output_dir = folder_paths.get_output_directory()
         os.makedirs(output_dir, exist_ok=True)
-        # --- 关键修改：后缀改为 .wav ---
         filename = f"heartmula_gen_{uuid.uuid4().hex}.wav"
         out_path = os.path.join(output_dir, filename)
 
@@ -117,7 +113,7 @@ class HeartMuLa_Generate:
                 pipe(
                     {"lyrics": lyrics, "tags": tags},
                     max_audio_length_ms=max_audio_length_ms,
-                    save_path=out_path, # heartlib 内部会根据 .wav 自动处理
+                    save_path=out_path,
                     topk=topk,
                     temperature=temperature,
                     cfg_scale=cfg_scale,
@@ -129,8 +125,8 @@ class HeartMuLa_Generate:
             torch.cuda.empty_cache()
             gc.collect()
 
-        # 读取时 torchaudio 加载 WAV 非常稳定，不需要后端
         waveform, sample_rate = torchaudio.load(out_path)
+        
         if waveform.ndim == 1:
             waveform = waveform.unsqueeze(0) 
         
@@ -177,8 +173,7 @@ class HeartMuLa_Transcribe:
         elif waveform.ndim == 1:
             waveform = waveform.unsqueeze(0)
         
-        if waveform.dtype != torch.float32:
-            waveform = waveform.float()
+        waveform = waveform.to(torch.float32).cpu()
         
         output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
