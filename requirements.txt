@@ -2,6 +2,7 @@ torchtune
 vector_quantize_pytorch
 transformers>=4.45.0
 torchtune>=0.3.0
+torchao
 einops>=0.8.0
 safetensors>=0.4.0
 sentencepiece>=0.2.0
