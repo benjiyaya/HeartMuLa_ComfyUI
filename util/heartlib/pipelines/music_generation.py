@@ -64,6 +64,7 @@ class HeartMuLaGenPipeline:
 
     def load_heartmula(self) -> None:
         if self.model is not None: return
+        print(f"Loading HeartMuLa...")
         self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
         self.model.to(self.device)
         self.model.eval()
@@ -71,22 +72,32 @@ class HeartMuLaGenPipeline:
 
     def unload_heartmula(self) -> None:
         if self.model is None: return
+        print("Unloading HeartMuLa to free VRAM...")
+        self.model.cpu() # 先切到CPU再删，更安全
         del self.model
         self.model = None
         gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.synchronize() # 确保显存确实释放了
 
     def load_heartcodec(self) -> None:
         if self.audio_codec is not None: return
-        self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path, device_map=self.device)
+        print(f"Loading HeartCodec...")
+        # 显式不使用 device_map，手动转移以防显存分配激增
+        self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
+        self.audio_codec.to(self.device)
+        self.audio_codec.eval()
         self._parallel_number = self.audio_codec.config.num_quantizers + 1
 
     def unload_heartcodec(self) -> None:
         if self.audio_codec is None: return
+        print("Unloading HeartCodec...")
+        self.audio_codec.cpu()
         del self.audio_codec
         self.audio_codec = None
         gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
     def preprocess(self, inputs: Dict[str, Any], cfg_scale: float):
         if self._muq_dim is None and self.model is None:
@@ -174,9 +185,15 @@ class HeartMuLaGenPipeline:
         return {"frames": frames.cpu()}
 
     def postprocess(self, model_outputs: Dict[str, Any], save_path: str, auto_unload: bool = True):
+        # 关键点：在加载解码器前，再次确保大模型已经彻底消失
+        if auto_unload:
+            self.unload_heartmula()
+
         self.load_heartcodec()
         frames = model_outputs["frames"].to(self.device)
-        wav = self.audio_codec.detokenize(frames)
+        
+        with torch.inference_mode():
+            wav = self.audio_codec.detokenize(frames)
         
         if wav.dtype != torch.float32:
             wav = wav.to(torch.float32).cpu()
@@ -190,7 +207,6 @@ class HeartMuLaGenPipeline:
         auto_unload = kwargs.get("auto_unload", True)
         preprocess_kwargs, forward_kwargs, postprocess_kwargs = self._sanitize_parameters(**kwargs)
         model_inputs = self.preprocess(inputs, cfg_scale=preprocess_kwargs["cfg_scale"])
-        # Pass auto_unload to forward and postprocess
         model_outputs = self._forward(model_inputs, auto_unload=auto_unload, **forward_kwargs)
         self.postprocess(model_outputs, save_path=postprocess_kwargs["save_path"], auto_unload=auto_unload)
 
@@ -210,9 +226,4 @@ class HeartMuLaGenPipeline:
         tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
 
-        if lazy_load:
-            return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config, num_quantizers)
-        else:
-            heartcodec = HeartCodec.from_pretrained(heartcodec_path, device_map=device)
-            heartmula = HeartMuLa.from_pretrained(heartmula_path, dtype=dtype, quantization_config=bnb_config)
-            return cls(heartmula, heartcodec, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config, num_quantizers)
+        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config, num_quantizers)

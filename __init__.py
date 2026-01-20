@@ -35,7 +35,6 @@ class HeartMuLaModelManager:
 
     def get_gen_pipeline(self, version="3B"):
         if version not in self._gen_pipes:
-            print(f"[HeartMuLa] Initializing Pipeline (Version: {version})...")
             from heartlib import HeartMuLaGenPipeline
             dtype = torch.bfloat16
             pipe = HeartMuLaGenPipeline.from_pretrained(
@@ -45,10 +44,7 @@ class HeartMuLaModelManager:
                 version=version,
                 lazy_load=True
             )
-            torch.cuda.empty_cache()
-            gc.collect()
             self._gen_pipes[version] = pipe
-            print(f"[HeartMuLa] Pipeline Proxy Ready.")
         return self._gen_pipes[version]
 
     def get_transcribe_pipeline(self):
@@ -96,11 +92,10 @@ class HeartMuLa_Generate:
         filename = f"heartmula_gen_{uuid.uuid4().hex}.wav"
         out_path = os.path.join(output_dir, filename)
 
-        # auto_unload logic: if user wants to keep loaded, we pass auto_unload=False
         auto_unload = not keep_model_loaded
 
         try:
-            with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.inference_mode():
                 pipe(
                     {"lyrics": lyrics, "tags": tags},
                     max_audio_length_ms=max_audio_length_ms,
@@ -111,20 +106,18 @@ class HeartMuLa_Generate:
                     auto_unload=auto_unload
                 )
         except Exception as e:
-            print(f"[HeartMuLa Error] Generation failed: {e}")
+            print(f"[HeartMuLa Error] {e}")
             raise e
         finally:
             if auto_unload:
-                torch.cuda.empty_cache()
                 gc.collect()
+                torch.cuda.empty_cache()
 
         waveform, sample_rate = torchaudio.load(out_path)
         if waveform.ndim == 1: waveform = waveform.unsqueeze(0) 
         waveform = waveform.float()
         if waveform.ndim == 2: waveform = waveform.unsqueeze(0)
-            
-        audio_output = {"waveform": waveform, "sample_rate": sample_rate}
-        return (audio_output, out_path)
+        return ({"waveform": waveform, "sample_rate": sample_rate}, out_path)
 
 class HeartMuLa_Transcribe:
     @classmethod
@@ -166,16 +159,11 @@ class HeartMuLa_Transcribe:
 
         manager = HeartMuLaModelManager()
         pipe = manager.get_transcribe_pipeline()
-        try:
-            with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16):
-                result = pipe(temp_path, temperature=temp_tuple, no_speech_threshold=no_speech_threshold, logprob_threshold=logprob_threshold, task="transcribe")
-        finally:
-            if os.path.exists(temp_path): os.remove(temp_path)
-            torch.cuda.empty_cache()
-            gc.collect()
-
-        text = result if isinstance(result, str) else result.get("text", str(result))
-        return (text,)
+        with torch.inference_mode():
+            result = pipe(temp_path, temperature=temp_tuple, no_speech_threshold=no_speech_threshold, logprob_threshold=logprob_threshold, task="transcribe")
+        
+        if os.path.exists(temp_path): os.remove(temp_path)
+        return (result if isinstance(result, str) else result.get("text", str(result)),)
 
 NODE_CLASS_MAPPINGS = {"HeartMuLa_Generate": HeartMuLa_Generate, "HeartMuLa_Transcribe": HeartMuLa_Transcribe}
 NODE_DISPLAY_NAME_MAPPINGS = {"HeartMuLa_Generate": "HeartMuLa Music Generator", "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber"}
