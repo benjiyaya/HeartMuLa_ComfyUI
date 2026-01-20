@@ -8,8 +8,8 @@
       "id": 13,
       "type": "PreviewAudio",
       "pos": [
-        933.8670581614135,
-        260.36932945251465
+        969.9301686046895,
+        262.6232738552194
       ],
       "size": [
         270,
@@ -20,16 +20,26 @@
       "mode": 0,
       "inputs": [
         {
+          "label": "audio",
           "name": "audio",
           "type": "AUDIO",
           "link": 11
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          },
+          "link": null
         }
       ],
       "outputs": [],
       "properties": {
+        "Node name for S&R": "PreviewAudio",
         "cnr_id": "comfy-core",
-        "ver": "0.9.2",
-        "Node name for S&R": "PreviewAudio"
+        "ver": "0.9.2"
       },
       "widgets_values": []
     },
@@ -47,9 +57,92 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "inputs": [],
+      "inputs": [
+        {
+          "label": "lyrics",
+          "name": "lyrics",
+          "type": "STRING",
+          "widget": {
+            "name": "lyrics"
+          },
+          "link": null
+        },
+        {
+          "label": "tags",
+          "name": "tags",
+          "type": "STRING",
+          "widget": {
+            "name": "tags"
+          },
+          "link": null
+        },
+        {
+          "label": "version",
+          "name": "version",
+          "type": "COMBO",
+          "widget": {
+            "name": "version"
+          },
+          "link": null
+        },
+        {
+          "label": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "label": "max_audio_length_ms",
+          "name": "max_audio_length_ms",
+          "type": "INT",
+          "widget": {
+            "name": "max_audio_length_ms"
+          },
+          "link": null
+        },
+        {
+          "label": "topk",
+          "name": "topk",
+          "type": "INT",
+          "widget": {
+            "name": "topk"
+          },
+          "link": null
+        },
+        {
+          "label": "temperature",
+          "name": "temperature",
+          "type": "FLOAT",
+          "widget": {
+            "name": "temperature"
+          },
+          "link": null
+        },
+        {
+          "label": "cfg_scale",
+          "name": "cfg_scale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "cfg_scale"
+          },
+          "link": null
+        },
+        {
+          "label": "keep_model_loaded",
+          "name": "keep_model_loaded",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "keep_model_loaded"
+          },
+          "link": null
+        }
+      ],
       "outputs": [
         {
+          "label": "audio_output",
           "name": "audio_output",
           "type": "AUDIO",
           "links": [
@@ -57,6 +150,7 @@
           ]
         },
         {
+          "label": "filepath",
           "name": "filepath",
           "type": "STRING",
           "links": null
@@ -69,10 +163,13 @@
         "Don't leave me in all this red\nDon't leave me out of mem again\nCome back and bring back my frames\nTake away this CUDA pain\n\nUn-break my card, say you'll load me again\nUndo this hurt you caused when you crashed and left my screen\nUn-break my card, my card\nCome and un-break my card, sweet darling\nBring back those gigs that I miss so bad\nPlease, un-break my card\n\nI need your layers, I need your weights\nWithout you, baby, I'm incomplete\nDon't leave me broken on this SSD\nCome back and run for me\n\nUn-break my card, say you'll load me again\nUndo this hurt you caused when you crashed and left my screen\nUn-break my card, my card\nCome and un-break my card, sweet darling\nBring back those gigs that I miss so bad\nPlease, un-break my card\n(ohhh... just 8 more gigs... please...)\nUn-break my card...",
         "90s adult contemporary soft pop ballad, dreamy romantic atmosphere, warm rhodes piano, lush synth string pads, gentle acoustic guitar, breathy male vocals with long yearning phrases, big reverb and delay, heartfelt and slightly cheesy 90s radio love song feel, 100 bpm, smooth flowing eighth-note groove, emotional soaring chorus, tender and desperate tone\n",
         "3B",
-        140000,
+        0,
+        "randomize",
+        20000,
         50,
         1,
-        1.5
+        1.5,
+        true
       ]
     }
   ],
@@ -92,12 +189,12 @@
     "ds": {
       "scale": 1,
       "offset": [
-        -0.90911865234375,
-        0
+        148.25891921037106,
+        -8.228434695221267
       ]
     },
-    "workflowRendererVersion": "LG",
     "frontendVersion": "1.36.14",
+    "workflowRendererVersion": "LG",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
