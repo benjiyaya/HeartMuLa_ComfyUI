@@ -20,7 +20,21 @@ util_dir = os.path.join(current_dir, "util")
 if util_dir not in sys.path:
     sys.path.insert(0, util_dir)
 
-MODEL_BASE_DIR = os.path.join(folder_paths.models_dir, "HeartMuLa")
+# ----------------------------
+# Path Configuration
+# ----------------------------
+folder_paths.add_model_folder_path("HeartMuLa", os.path.join(folder_paths.models_dir, "HeartMuLa"))
+
+def get_model_base_dir():
+    paths = folder_paths.get_folder_paths("HeartMuLa")
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return paths[0]
+
+MODEL_BASE_DIR = get_model_base_dir()
+
+
 
 class HeartMuLaModelManager:
     _instance = None
@@ -192,5 +206,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLa_Generate": "HeartMuLa Music Generator",
     "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
 }
+
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
