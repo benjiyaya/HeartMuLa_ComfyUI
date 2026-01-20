@@ -49,67 +49,28 @@ class HeartMuLaGenPipeline:
         self.heartmula_path = heartmula_path
         self.heartcodec_path = heartcodec_path
         self.bnb_config = bnb_config
-        self._parallel_number = None
-        self._muq_dim = None
+        self._parallel_number = num_quantizers + 1 if num_quantizers else 9
+        self._muq_dim = model.config.muq_dim if model else None
 
-        if audio_codec is not None:
-            self._parallel_number = audio_codec.config.num_quantizers + 1
-        elif num_quantizers is not None:
-            self._parallel_number = num_quantizers + 1
-        else:
-            self._parallel_number = 8 + 1
-
-        if model is not None:
-            self._muq_dim = model.config.muq_dim
-
-    def load_heartmula(self) -> None:
-        if self.model is not None: return
-        print(f"Loading HeartMuLa...")
-        self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
+    def load_heartmula(self):
+        if self.model is None:
+            self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
         self.model.to(self.device)
         self.model.eval()
         self._muq_dim = self.model.config.muq_dim
 
-    def unload_heartmula(self) -> None:
-        if self.model is None: return
-        print("Unloading HeartMuLa to free VRAM...")
-        self.model.cpu() # 先切到CPU再删，更安全
-        del self.model
-        self.model = None
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize() # 确保显存确实释放了
-
-    def load_heartcodec(self) -> None:
-        if self.audio_codec is not None: return
-        print(f"Loading HeartCodec...")
-        # 显式不使用 device_map，手动转移以防显存分配激增
-        self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
+    def load_heartcodec(self):
+        if self.audio_codec is None:
+            self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
         self.audio_codec.to(self.device)
         self.audio_codec.eval()
-        self._parallel_number = self.audio_codec.config.num_quantizers + 1
-
-    def unload_heartcodec(self) -> None:
-        if self.audio_codec is None: return
-        print("Unloading HeartCodec...")
-        self.audio_codec.cpu()
-        del self.audio_codec
-        self.audio_codec = None
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
 
     def preprocess(self, inputs: Dict[str, Any], cfg_scale: float):
-        if self._muq_dim is None and self.model is None:
-            self.load_heartmula()
+        if self.model is None: self.load_heartmula()
         
-        tags = inputs["tags"]
-        if os.path.isfile(tags):
-            with open(tags, encoding="utf-8") as fp: tags = fp.read()
-        tags = tags.lower()
+        tags = inputs["tags"].lower()
         if not tags.startswith("<tag>"): tags = f"<tag>{tags}"
         if not tags.endswith("</tag>"): tags = f"{tags}</tag>"
-
         tags_ids = self.text_tokenizer.encode(tags).ids
         if tags_ids[0] != self.config.text_bos_id: tags_ids = [self.config.text_bos_id] + tags_ids
         if tags_ids[-1] != self.config.text_eos_id: tags_ids = tags_ids + [self.config.text_eos_id]
@@ -117,10 +78,8 @@ class HeartMuLaGenPipeline:
         muq_embed = torch.zeros([self._muq_dim], dtype=self.dtype, device=self.device)
         muq_idx = len(tags_ids)
 
-        lyrics = inputs["lyrics"]
-        if os.path.isfile(lyrics):
-            with open(lyrics, encoding="utf-8") as fp: lyrics = fp.read()
-        lyrics_ids = self.text_tokenizer.encode(lyrics.lower()).ids
+        lyrics = inputs["lyrics"].lower()
+        lyrics_ids = self.text_tokenizer.encode(lyrics).ids
         if lyrics_ids[0] != self.config.text_bos_id: lyrics_ids = [self.config.text_bos_id] + lyrics_ids
         if lyrics_ids[-1] != self.config.text_eos_id: lyrics_ids = lyrics_ids + [self.config.text_eos_id]
 
@@ -132,98 +91,86 @@ class HeartMuLaGenPipeline:
         tokens_mask[:, -1] = True
 
         bs_size = 2 if cfg_scale != 1.0 else 1
-        def _cfg_cat(tensor: torch.Tensor, cfg_scale: float):
-            tensor = tensor.unsqueeze(0)
-            if cfg_scale != 1.0: tensor = torch.cat([tensor, tensor], dim=0)
-            return tensor
+        def _cfg_cat(t):
+            t = t.unsqueeze(0)
+            return torch.cat([t, t], dim=0) if cfg_scale != 1.0 else t
 
         return {
-            "tokens": _cfg_cat(tokens, cfg_scale),
-            "tokens_mask": _cfg_cat(tokens_mask, cfg_scale),
-            "muq_embed": _cfg_cat(muq_embed, cfg_scale),
+            "tokens": _cfg_cat(tokens),
+            "tokens_mask": _cfg_cat(tokens_mask),
+            "muq_embed": _cfg_cat(muq_embed),
             "muq_idx": [muq_idx] * bs_size,
-            "pos": _cfg_cat(torch.arange(prompt_len, dtype=torch.long, device=self.device), cfg_scale),
+            "pos": _cfg_cat(torch.arange(prompt_len, dtype=torch.long, device=self.device)),
         }
 
-    def _forward(self, model_inputs: Dict[str, Any], max_audio_length_ms: int, temperature: float, topk: int, cfg_scale: float, auto_unload: bool = True):
+    def _forward(self, model_inputs: Dict[str, Any], max_audio_length_ms: int, temperature: float, topk: int, cfg_scale: float):
         self.load_heartmula()
-        prompt_tokens, prompt_tokens_mask = model_inputs["tokens"], model_inputs["tokens_mask"]
-        continuous_segment, starts, prompt_pos = model_inputs["muq_embed"], model_inputs["muq_idx"], model_inputs["pos"]
-
-        frames = []
         self.model.setup_caches(2 if cfg_scale != 1.0 else 1)
-        with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+        
+        frames = []
+        with torch.autocast(device_type="cuda", dtype=self.dtype):
             curr_token = self.model.generate_frame(
-                tokens=prompt_tokens, tokens_mask=prompt_tokens_mask, input_pos=prompt_pos,
-                temperature=temperature, topk=topk, cfg_scale=cfg_scale,
-                continuous_segments=continuous_segment, starts=starts,
+                tokens=model_inputs["tokens"], tokens_mask=model_inputs["tokens_mask"], 
+                input_pos=model_inputs["pos"], temperature=temperature, topk=topk, 
+                cfg_scale=cfg_scale, continuous_segments=model_inputs["muq_embed"], starts=model_inputs["muq_idx"],
             )
         frames.append(curr_token[0:1,])
 
-        max_audio_frames = max_audio_length_ms // 80
-        for i in tqdm(range(max_audio_frames)):
-            padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=curr_token.device, dtype=torch.long) * self.config.empty_id)
+        for i in tqdm(range(max_audio_length_ms // 80)):
+            padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=self.device, dtype=torch.long) * self.config.empty_id)
             padded_token[:, :-1] = curr_token
             padded_token = padded_token.unsqueeze(1)
-            padded_token_mask = torch.ones_like(padded_token, device=curr_token.device, dtype=torch.bool)
-            padded_token_mask[..., -1] = False
+            padded_token_mask = torch.ones_like(padded_token, dtype=torch.bool); padded_token_mask[..., -1] = False
 
-            with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+            with torch.autocast(device_type="cuda", dtype=self.dtype):
                 curr_token = self.model.generate_frame(
                     tokens=padded_token, tokens_mask=padded_token_mask,
-                    input_pos=prompt_pos[..., -1:] + i + 1,
+                    input_pos=model_inputs["pos"][..., -1:] + i + 1,
                     temperature=temperature, topk=topk, cfg_scale=cfg_scale,
                 )
             if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id): break
             frames.append(curr_token[0:1,])
         
-        frames = torch.stack(frames).permute(1, 2, 0).squeeze(0)
-        
-        if auto_unload:
-            self.unload_heartmula()
+        return torch.stack(frames).permute(1, 2, 0).squeeze(0).cpu()
+
+    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool):
+
+        if keep_model_loaded and self.model is not None:
+            self.model.to("cpu") 
+            torch.cuda.empty_cache()
+
+        try:
+            self.load_heartcodec()
+            with torch.inference_mode():
+                wav = self.audio_codec.detokenize(frames.to(self.device))
+                wav = wav.detach().cpu().float()
             
-        return {"frames": frames.cpu()}
-
-    def postprocess(self, model_outputs: Dict[str, Any], save_path: str, auto_unload: bool = True):
-        # 关键点：在加载解码器前，再次确保大模型已经彻底消失
-        if auto_unload:
-            self.unload_heartmula()
-
-        self.load_heartcodec()
-        frames = model_outputs["frames"].to(self.device)
-        
-        with torch.inference_mode():
-            wav = self.audio_codec.detokenize(frames)
-        
-        if wav.dtype != torch.float32:
-            wav = wav.to(torch.float32).cpu()
-        
-        torchaudio.save(save_path, wav, 48000)
-        
-        if auto_unload:
-            self.unload_heartcodec()
+            torchaudio.save(save_path, wav, 48000)
+        finally:
+            if not keep_model_loaded:
+                del self.audio_codec; self.audio_codec = None
+                del self.model; self.model = None
+            else:
+                del self.audio_codec; self.audio_codec = None
+                if self.model is not None: self.model.to(self.device)
+            
+            gc.collect()
+            torch.cuda.empty_cache()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
-        auto_unload = kwargs.get("auto_unload", True)
-        preprocess_kwargs, forward_kwargs, postprocess_kwargs = self._sanitize_parameters(**kwargs)
-        model_inputs = self.preprocess(inputs, cfg_scale=preprocess_kwargs["cfg_scale"])
-        model_outputs = self._forward(model_inputs, auto_unload=auto_unload, **forward_kwargs)
-        self.postprocess(model_outputs, save_path=postprocess_kwargs["save_path"], auto_unload=auto_unload)
-
-    def _sanitize_parameters(self, **kwargs):
-        return (
-            {"cfg_scale": kwargs.get("cfg_scale", 1.5)},
-            {"max_audio_length_ms": kwargs.get("max_audio_length_ms", 120_000), "temperature": kwargs.get("temperature", 1.0), "topk": kwargs.get("topk", 50), "cfg_scale": kwargs.get("cfg_scale", 1.5)},
-            {"save_path": kwargs.get("save_path", "output.mp3")}
-        )
+        keep_model_loaded = kwargs.get("keep_model_loaded", True)
+        model_inputs = self.preprocess(inputs, cfg_scale=kwargs.get("cfg_scale", 1.5))
+        frames = self._forward(model_inputs, 
+                               max_audio_length_ms=kwargs.get("max_audio_length_ms", 120000),
+                               temperature=kwargs.get("temperature", 1.0),
+                               topk=kwargs.get("topk", 50),
+                               cfg_scale=kwargs.get("cfg_scale", 1.5))
+        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded)
 
     @classmethod
-    def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config: Optional[BitsAndBytesConfig] = None, lazy_load: bool = True):
+    def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
         heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
         heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
-        with open(os.path.join(heartcodec_path, "config.json"), encoding="utf-8") as f:
-            num_quantizers = json.load(f).get("num_quantizers", 8)
         tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
-
-        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config, num_quantizers)
+        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config)
