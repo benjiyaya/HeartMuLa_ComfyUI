@@ -1,4 +1,3 @@
-from transformers.pipelines.base import Pipeline
 from tokenizers import Tokenizer
 from ..heartmula.modeling_heartmula import HeartMuLa
 from ..heartcodec.modeling_heartcodec import HeartCodec
@@ -9,8 +8,8 @@ from dataclasses import dataclass
 from tqdm import tqdm
 import torchaudio
 import json
+import gc
 from transformers import BitsAndBytesConfig
-
 
 @dataclass
 class HeartMuLaGenConfig:
@@ -25,232 +24,160 @@ class HeartMuLaGenConfig:
             data = json.load(fp)
         return cls(**data)
 
-
-class HeartMuLaGenPipeline(Pipeline):
+class HeartMuLaGenPipeline:
     def __init__(
         self,
-        model: HeartMuLa,
-        audio_codec: HeartCodec,
+        model: Optional[HeartMuLa],
+        audio_codec: Optional[HeartCodec],
         muq_mulan: Optional[Any],
         text_tokenizer: Tokenizer,
         config: HeartMuLaGenConfig,
         device: torch.device,
         dtype: torch.dtype,
+        heartmula_path: Optional[str] = None,
+        heartcodec_path: Optional[str] = None,
+        bnb_config: Optional[BitsAndBytesConfig] = None,
+        num_quantizers: Optional[int] = None,
     ):
-        super().__init__(model, dtype=dtype)
         self.model = model
         self.audio_codec = audio_codec
         self.muq_mulan = muq_mulan
         self.text_tokenizer = text_tokenizer
         self.config = config
+        self.device = device
+        self.dtype = dtype
+        self.heartmula_path = heartmula_path
+        self.heartcodec_path = heartcodec_path
+        self.bnb_config = bnb_config
+        self._parallel_number = num_quantizers + 1 if num_quantizers else 9
+        self._muq_dim = model.config.muq_dim if model else None
 
-        self._parallel_number = audio_codec.config.num_quantizers + 1
-        self._muq_dim = model.config.muq_dim
+    def load_heartmula(self):
+        if self.model is None:
+            self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
+        if str(next(self.model.parameters()).device) != str(self.device):
+            self.model.to(self.device)
+        self.model.eval()
+        self._muq_dim = self.model.config.muq_dim
 
-    def _sanitize_parameters(self, **kwargs):
-        preprocess_kwargs = {"cfg_scale": kwargs.get("cfg_scale", 1.5)}
-        forward_kwargs = {
-            "max_audio_length_ms": kwargs.get("max_audio_length_ms", 120_000),
-            "temperature": kwargs.get("temperature", 1.0),
-            "topk": kwargs.get("topk", 50),
-            "cfg_scale": kwargs.get("cfg_scale", 1.5),
-        }
-        postprocess_kwargs = {
-            "save_path": kwargs.get("save_path", "output.mp3"),
-        }
-        return preprocess_kwargs, forward_kwargs, postprocess_kwargs
+    def load_heartcodec(self):
+        if self.audio_codec is None:
+            self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
+        if str(next(self.audio_codec.parameters()).device) != str(self.device):
+            self.audio_codec.to(self.device)
+        self.audio_codec.eval()
 
     def preprocess(self, inputs: Dict[str, Any], cfg_scale: float):
-
-        # process tags
-        tags = inputs["tags"]
-        if os.path.isfile(tags):
-            with open(tags, encoding="utf-8") as fp:
-                tags = fp.read()
-        assert isinstance(tags, str), f"tags must be a string, but got {type(tags)}"
-
-        tags = tags.lower()
-        # encapsulate with special <tag> and </tag> tokens
-        if not tags.startswith("<tag>"):
-            tags = f"<tag>{tags}"
-        if not tags.endswith("</tag>"):
-            tags = f"{tags}</tag>"
-
+        self.load_heartmula()
+        tags = inputs["tags"].lower()
+        if not tags.startswith("<tag>"): tags = f"<tag>{tags}"
+        if not tags.endswith("</tag>"): tags = f"{tags}</tag>"
         tags_ids = self.text_tokenizer.encode(tags).ids
-        if tags_ids[0] != self.config.text_bos_id:
-            tags_ids = [self.config.text_bos_id] + tags_ids
-        if tags_ids[-1] != self.config.text_eos_id:
-            tags_ids = tags_ids + [self.config.text_eos_id]
+        if tags_ids[0] != self.config.text_bos_id: tags_ids = [self.config.text_bos_id] + tags_ids
+        if tags_ids[-1] != self.config.text_eos_id: tags_ids = tags_ids + [self.config.text_eos_id]
 
-        # process reference audio
-        ref_audio = inputs.get("ref_audio", None)
-        if ref_audio is not None:
-            raise NotImplementedError("ref_audio is not supported yet.")
-        muq_embed = torch.zeros([self._muq_dim], dtype=self.dtype)
+        muq_embed = torch.zeros([self._muq_dim], dtype=self.dtype, device=self.device)
         muq_idx = len(tags_ids)
 
-        # process lyrics
-        lyrics = inputs["lyrics"]
-        if os.path.isfile(lyrics):
-            with open(lyrics, encoding="utf-8") as fp:
-                lyrics = fp.read()
-        assert isinstance(
-            lyrics, str
-        ), f"lyrics must be a string, but got {type(lyrics)}"
-        lyrics = lyrics.lower()
-
+        lyrics = inputs["lyrics"].lower()
         lyrics_ids = self.text_tokenizer.encode(lyrics).ids
-        if lyrics_ids[0] != self.config.text_bos_id:
-            lyrics_ids = [self.config.text_bos_id] + lyrics_ids
-        if lyrics_ids[-1] != self.config.text_eos_id:
-            lyrics_ids = lyrics_ids + [self.config.text_eos_id]
+        if lyrics_ids[0] != self.config.text_bos_id: lyrics_ids = [self.config.text_bos_id] + lyrics_ids
+        if lyrics_ids[-1] != self.config.text_eos_id: lyrics_ids = lyrics_ids + [self.config.text_eos_id]
 
-        # cat them together. tags, ref_audio, lyrics
         prompt_len = len(tags_ids) + 1 + len(lyrics_ids)
-
-        tokens = torch.zeros([prompt_len, self._parallel_number], dtype=torch.long)
-        tokens[: len(tags_ids), -1] = torch.tensor(tags_ids)
-        tokens[len(tags_ids) + 1 :, -1] = torch.tensor(lyrics_ids)
-
-        tokens_mask = torch.zeros_like(tokens, dtype=torch.bool)
+        tokens = torch.zeros([prompt_len, self._parallel_number], dtype=torch.long, device=self.device)
+        tokens[: len(tags_ids), -1] = torch.tensor(tags_ids, device=self.device)
+        tokens[len(tags_ids) + 1 :, -1] = torch.tensor(lyrics_ids, device=self.device)
+        tokens_mask = torch.zeros_like(tokens, dtype=torch.bool, device=self.device)
         tokens_mask[:, -1] = True
 
         bs_size = 2 if cfg_scale != 1.0 else 1
-
-        def _cfg_cat(tensor: torch.Tensor, cfg_scale: float):
-            tensor = tensor.unsqueeze(0)
-            if cfg_scale != 1.0:
-                tensor = torch.cat([tensor, tensor], dim=0)
-            return tensor
+        def _cfg_cat(t):
+            t = t.unsqueeze(0)
+            return torch.cat([t, t], dim=0) if cfg_scale != 1.0 else t
 
         return {
-            "tokens": _cfg_cat(tokens, cfg_scale),
-            "tokens_mask": _cfg_cat(tokens_mask, cfg_scale),
-            "muq_embed": _cfg_cat(muq_embed, cfg_scale),
+            "tokens": _cfg_cat(tokens),
+            "tokens_mask": _cfg_cat(tokens_mask),
+            "muq_embed": _cfg_cat(muq_embed),
             "muq_idx": [muq_idx] * bs_size,
-            "pos": _cfg_cat(torch.arange(prompt_len, dtype=torch.long), cfg_scale),
+            "pos": _cfg_cat(torch.arange(prompt_len, dtype=torch.long, device=self.device)),
         }
 
-    def _forward(
-        self,
-        model_inputs: Dict[str, Any],
-        max_audio_length_ms: int,
-        temperature: float,
-        topk: int,
-        cfg_scale: float,
-    ):
-        prompt_tokens = model_inputs["tokens"]
-        prompt_tokens_mask = model_inputs["tokens_mask"]
-        continuous_segment = model_inputs["muq_embed"]
-        starts = model_inputs["muq_idx"]
-        prompt_pos = model_inputs["pos"]
-
+    def _forward(self, model_inputs: Dict[str, Any], max_audio_length_ms: int, temperature: float, topk: int, cfg_scale: float):
+        self.load_heartmula()
+        self.model.setup_caches(2 if cfg_scale != 1.0 else 1)
+        
         frames = []
-
-        bs_size = 2 if cfg_scale != 1.0 else 1
-        self.model.setup_caches(bs_size)
-        with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+        with torch.autocast(device_type="cuda", dtype=self.dtype):
             curr_token = self.model.generate_frame(
-                tokens=prompt_tokens,
-                tokens_mask=prompt_tokens_mask,
-                input_pos=prompt_pos,
-                temperature=temperature,
-                topk=topk,
-                cfg_scale=cfg_scale,
-                continuous_segments=continuous_segment,
-                starts=starts,
+                tokens=model_inputs["tokens"], tokens_mask=model_inputs["tokens_mask"], 
+                input_pos=model_inputs["pos"], temperature=temperature, topk=topk, 
+                cfg_scale=cfg_scale, continuous_segments=model_inputs["muq_embed"], starts=model_inputs["muq_idx"],
             )
         frames.append(curr_token[0:1,])
 
-        def _pad_audio_token(token: torch.Tensor):
-            padded_token = (
-                torch.ones(
-                    (token.shape[0], self._parallel_number),
-                    device=token.device,
-                    dtype=torch.long,
-                )
-                * self.config.empty_id
-            )
-            padded_token[:, :-1] = token
+        for i in tqdm(range(max_audio_length_ms // 80)):
+            padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=self.device, dtype=torch.long) * self.config.empty_id)
+            padded_token[:, :-1] = curr_token
             padded_token = padded_token.unsqueeze(1)
-            padded_token_mask = torch.ones_like(
-                padded_token, device=token.device, dtype=torch.bool
-            )
-            padded_token_mask[..., -1] = False
-            return padded_token, padded_token_mask
+            padded_token_mask = torch.ones_like(padded_token, dtype=torch.bool); padded_token_mask[..., -1] = False
 
-        max_audio_frames = max_audio_length_ms // 80
-
-        for i in tqdm(range(max_audio_frames)):
-            curr_token, curr_token_mask = _pad_audio_token(curr_token)
-            with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+            with torch.autocast(device_type="cuda", dtype=self.dtype):
                 curr_token = self.model.generate_frame(
-                    tokens=curr_token,
-                    tokens_mask=curr_token_mask,
-                    input_pos=prompt_pos[..., -1:] + i + 1,
-                    temperature=temperature,
-                    topk=topk,
-                    cfg_scale=cfg_scale,
-                    continuous_segments=None,
-                    starts=None,
+                    tokens=padded_token, tokens_mask=padded_token_mask,
+                    input_pos=model_inputs["pos"][..., -1:] + i + 1,
+                    temperature=temperature, topk=topk, cfg_scale=cfg_scale,
                 )
-            if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id):
-                break
+            if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id): break
             frames.append(curr_token[0:1,])
-        frames = torch.stack(frames).permute(1, 2, 0).squeeze(0)
-        wav = self.audio_codec.detokenize(frames)
-        return {"wav": wav}
+        
+        return torch.stack(frames).permute(1, 2, 0).squeeze(0).cpu()
 
-    def postprocess(self, model_outputs: Dict[str, Any], save_path: str):
-        wav = model_outputs["wav"]
-        torchaudio.save(save_path, wav, 48000)
+    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool):
+        if self.model is not None:
+            self.model.to("cpu")
+            torch.cuda.empty_cache()
+            gc.collect()
+
+        try:
+            self.load_heartcodec()
+            with torch.inference_mode():
+                wav = self.audio_codec.detokenize(frames.to(self.device))
+                wav = wav.detach().cpu().float()
+            torchaudio.save(save_path, wav, 48000)
+        finally:
+            if hasattr(self, 'audio_codec'):
+                del self.audio_codec
+                self.audio_codec = None
+            
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            if keep_model_loaded:
+                if self.model is not None:
+                    self.model.to(self.device)
+            else:
+                if self.model is not None:
+                    del self.model
+                    self.model = None
+            
+            torch.cuda.empty_cache()
+
+    def __call__(self, inputs: Dict[str, Any], **kwargs):
+        keep_model_loaded = kwargs.get("keep_model_loaded", True)
+        model_inputs = self.preprocess(inputs, cfg_scale=kwargs.get("cfg_scale", 1.5))
+        frames = self._forward(model_inputs, 
+                               max_audio_length_ms=kwargs.get("max_audio_length_ms", 120000),
+                               temperature=kwargs.get("temperature", 1.0),
+                               topk=kwargs.get("topk", 50),
+                               cfg_scale=kwargs.get("cfg_scale", 1.5))
+        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded)
 
     @classmethod
-    def from_pretrained(
-        cls,
-        pretrained_path: str,
-        device: torch.device,
-        dtype: torch.dtype,
-        version: str,
-        bnb_config: Optional[BitsAndBytesConfig] = None,
-    ):
-
-        if os.path.exists(
-            heartcodec_path := os.path.join(pretrained_path, "HeartCodec-oss")
-        ):
-            heartcodec = HeartCodec.from_pretrained(heartcodec_path, device_map=device)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find checkpoint for HeartCodec at {heartcodec_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        if os.path.exists(
-            heartmula_path := os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
-        ):
-            heartmula = HeartMuLa.from_pretrained(
-                heartmula_path, dtype=dtype, quantization_config=bnb_config
-            )
-        else:
-            raise FileNotFoundError(
-                f"Expected to find checkpoint for HeartMuLa at {heartmula_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        if os.path.isfile(
-            vocab_path := os.path.join(pretrained_path, "tokenizer.json")
-        ):
-            tokenizer = Tokenizer.from_file(vocab_path)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find tokenizer.json for HeartMuLa at {vocab_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        if os.path.isfile(
-            gen_config_path := os.path.join(pretrained_path, "gen_config.json")
-        ):
-            gen_config = HeartMuLaGenConfig.from_file(gen_config_path)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find gen_config.json for HeartMuLa at {gen_config_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        return cls(heartmula, heartcodec, None, tokenizer, gen_config, device, dtype)
+    def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
+        heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
+        heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
+        tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
+        gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
+        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config)

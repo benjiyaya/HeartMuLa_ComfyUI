@@ -124,7 +124,7 @@ class HeartMuLa_Generate:
 
         output_dir = folder_paths.get_output_directory()
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"heartmula_gen_{uuid.uuid4().hex}.mp3"
+        filename = f"heartmula_gen_{uuid.uuid4().hex}.wav"
         out_path = os.path.join(output_dir, filename)
 
         # --- GENERATION ---
