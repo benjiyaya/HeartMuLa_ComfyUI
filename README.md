@@ -13,6 +13,15 @@ How To Use this In Basic: https://youtu.be/F9LFAeUbBIs
 
 <img width="1396" height="916" alt="image" src="https://github.com/user-attachments/assets/134a7776-6805-42a8-9e49-5852e8ee3ba9" />
 
+------------------------------------------------------------
+Update:
+
+------------------------------------------------------------
+
+2026-01-21 - MEMORY CLEANUP and Pipeline changed for BF16 - Optimized for 16GB. dtype I don't recommand under bf16 for this model, audio quaility are going to lose too much.
+
+
+
 
 ------------------------------------------------------------
 
