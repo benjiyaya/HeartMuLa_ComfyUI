@@ -35,7 +35,7 @@ class HeartMuLaModelManager:
 
     def get_gen_pipeline(self, version="3B"):
         if version not in self._gen_pipes:
-            print(f"[HeartMuLa] Initializing Pipeline (Version: {version}) with BF16 Resident Mode...")
+            print(f"[HeartMuLa] Initializing Multi-Stage Pipeline (Version: {version})...")
             from heartlib import HeartMuLaGenPipeline
             
             dtype = torch.bfloat16
@@ -45,18 +45,14 @@ class HeartMuLaModelManager:
                 device=self._device,
                 dtype=dtype,
                 version=version,
+                lazy_load=True
             )
-
-            if hasattr(pipe, 'model'):
-                pipe.model.to(dtype=dtype)
-            if hasattr(pipe, 'audio_codec'):
-                pipe.audio_codec.to(dtype=dtype)
 
             torch.cuda.empty_cache()
             gc.collect()
 
             self._gen_pipes[version] = pipe
-            print(f"[HeartMuLa] Pipeline Ready. Memory optimized.")
+            print(f"[HeartMuLa] Pipeline Proxy Ready. Models will load on-demand.")
             
         return self._gen_pipes[version]
 
