@@ -35,11 +35,9 @@ class HeartMuLaModelManager:
 
     def get_gen_pipeline(self, version="3B"):
         if version not in self._gen_pipes:
-            print(f"[HeartMuLa] Initializing Multi-Stage Pipeline (Version: {version})...")
+            print(f"[HeartMuLa] Initializing Pipeline (Version: {version})...")
             from heartlib import HeartMuLaGenPipeline
-            
             dtype = torch.bfloat16
-            
             pipe = HeartMuLaGenPipeline.from_pretrained(
                 MODEL_BASE_DIR,
                 device=self._device,
@@ -47,27 +45,18 @@ class HeartMuLaModelManager:
                 version=version,
                 lazy_load=True
             )
-
             torch.cuda.empty_cache()
             gc.collect()
-
             self._gen_pipes[version] = pipe
-            print(f"[HeartMuLa] Pipeline Proxy Ready. Models will load on-demand.")
-            
+            print(f"[HeartMuLa] Pipeline Proxy Ready.")
         return self._gen_pipes[version]
 
     def get_transcribe_pipeline(self):
         if self._transcribe_pipe is None:
-            print(f"[HeartMuLa] Loading Transcription Pipeline...")
             from heartlib import HeartTranscriptorPipeline
-            
             self._transcribe_pipe = HeartTranscriptorPipeline.from_pretrained(
-                MODEL_BASE_DIR,
-                device=self._device,
-                dtype=torch.float16,
+                MODEL_BASE_DIR, device=self._device, dtype=torch.float16,
             )
-            print("[HeartMuLa] Transcription Pipeline Ready.")
-            
         return self._transcribe_pipe
 
 class HeartMuLa_Generate:
@@ -83,6 +72,9 @@ class HeartMuLa_Generate:
                 "topk": ("INT", {"default": 50, "min": 1, "max": 250, "step": 1}),
                 "temperature": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0, "step": 0.05}),
                 "cfg_scale": ("FLOAT", {"default": 1.5, "min": 1.0, "max": 10.0, "step": 0.1}),
+            },
+            "optional": {
+                "keep_model_loaded": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -91,7 +83,7 @@ class HeartMuLa_Generate:
     FUNCTION = "generate"
     CATEGORY = "HeartMuLa"
 
-    def generate(self, lyrics, tags, version, seed, max_audio_length_ms, topk, temperature, cfg_scale):
+    def generate(self, lyrics, tags, version, seed, max_audio_length_ms, topk, temperature, cfg_scale, keep_model_loaded=True):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         np.random.seed(seed & 0xFFFFFFFF)
@@ -104,6 +96,9 @@ class HeartMuLa_Generate:
         filename = f"heartmula_gen_{uuid.uuid4().hex}.wav"
         out_path = os.path.join(output_dir, filename)
 
+        # auto_unload logic: if user wants to keep loaded, we pass auto_unload=False
+        auto_unload = not keep_model_loaded
+
         try:
             with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 pipe(
@@ -113,29 +108,22 @@ class HeartMuLa_Generate:
                     topk=topk,
                     temperature=temperature,
                     cfg_scale=cfg_scale,
+                    auto_unload=auto_unload
                 )
         except Exception as e:
             print(f"[HeartMuLa Error] Generation failed: {e}")
             raise e
         finally:
-            torch.cuda.empty_cache()
-            gc.collect()
+            if auto_unload:
+                torch.cuda.empty_cache()
+                gc.collect()
 
         waveform, sample_rate = torchaudio.load(out_path)
-        
-        if waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0) 
-        
+        if waveform.ndim == 1: waveform = waveform.unsqueeze(0) 
         waveform = waveform.float()
+        if waveform.ndim == 2: waveform = waveform.unsqueeze(0)
             
-        if waveform.ndim == 2:
-            waveform = waveform.unsqueeze(0)
-            
-        audio_output = {
-            "waveform": waveform,
-            "sample_rate": sample_rate
-        }
-
+        audio_output = {"waveform": waveform, "sample_rate": sample_rate}
         return (audio_output, out_path)
 
 class HeartMuLa_Transcribe:
@@ -157,24 +145,18 @@ class HeartMuLa_Transcribe:
 
     def transcribe(self, audio_input, temperature_tuple, no_speech_threshold, logprob_threshold):
         if isinstance(audio_input, dict):
-            waveform = audio_input["waveform"]
-            sr = audio_input["sample_rate"]
+            waveform, sr = audio_input["waveform"], audio_input["sample_rate"]
         else:
             sr, waveform = audio_input
-            if isinstance(waveform, np.ndarray):
-                 waveform = torch.from_numpy(waveform)
+            if isinstance(waveform, np.ndarray): waveform = torch.from_numpy(waveform)
         
-        if waveform.ndim == 3:
-            waveform = waveform.squeeze(0)
-        elif waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0)
-        
+        if waveform.ndim == 3: waveform = waveform.squeeze(0)
+        elif waveform.ndim == 1: waveform = waveform.unsqueeze(0)
         waveform = waveform.to(torch.float32).cpu()
         
         output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"hm_trans_{uuid.uuid4().hex}.wav")
-
         torchaudio.save(temp_path, waveform, sr)
 
         try:
@@ -184,33 +166,17 @@ class HeartMuLa_Transcribe:
 
         manager = HeartMuLaModelManager()
         pipe = manager.get_transcribe_pipeline()
-
         try:
             with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16):
-                result = pipe(
-                    temp_path,
-                    temperature=temp_tuple,
-                    no_speech_threshold=no_speech_threshold,
-                    logprob_threshold=logprob_threshold,
-                    task="transcribe",
-                )
+                result = pipe(temp_path, temperature=temp_tuple, no_speech_threshold=no_speech_threshold, logprob_threshold=logprob_threshold, task="transcribe")
         finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            if os.path.exists(temp_path): os.remove(temp_path)
             torch.cuda.empty_cache()
             gc.collect()
 
         text = result if isinstance(result, str) else result.get("text", str(result))
         return (text,)
 
-NODE_CLASS_MAPPINGS = {
-    "HeartMuLa_Generate": HeartMuLa_Generate,
-    "HeartMuLa_Transcribe": HeartMuLa_Transcribe,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "HeartMuLa_Generate": "HeartMuLa Music Generator",
-    "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
-}
-
+NODE_CLASS_MAPPINGS = {"HeartMuLa_Generate": HeartMuLa_Generate, "HeartMuLa_Transcribe": HeartMuLa_Transcribe}
+NODE_DISPLAY_NAME_MAPPINGS = {"HeartMuLa_Generate": "HeartMuLa Music Generator", "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber"}
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']

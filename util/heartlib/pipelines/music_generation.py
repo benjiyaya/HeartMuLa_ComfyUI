@@ -134,7 +134,7 @@ class HeartMuLaGenPipeline:
             "pos": _cfg_cat(torch.arange(prompt_len, dtype=torch.long, device=self.device), cfg_scale),
         }
 
-    def _forward(self, model_inputs: Dict[str, Any], max_audio_length_ms: int, temperature: float, topk: int, cfg_scale: float):
+    def _forward(self, model_inputs: Dict[str, Any], max_audio_length_ms: int, temperature: float, topk: int, cfg_scale: float, auto_unload: bool = True):
         self.load_heartmula()
         prompt_tokens, prompt_tokens_mask = model_inputs["tokens"], model_inputs["tokens_mask"]
         continuous_segment, starts, prompt_pos = model_inputs["muq_embed"], model_inputs["muq_idx"], model_inputs["pos"]
@@ -151,7 +151,6 @@ class HeartMuLaGenPipeline:
 
         max_audio_frames = max_audio_length_ms // 80
         for i in tqdm(range(max_audio_frames)):
-
             padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=curr_token.device, dtype=torch.long) * self.config.empty_id)
             padded_token[:, :-1] = curr_token
             padded_token = padded_token.unsqueeze(1)
@@ -168,26 +167,32 @@ class HeartMuLaGenPipeline:
             frames.append(curr_token[0:1,])
         
         frames = torch.stack(frames).permute(1, 2, 0).squeeze(0)
-        self.unload_heartmula()
+        
+        if auto_unload:
+            self.unload_heartmula()
+            
         return {"frames": frames.cpu()}
 
-    def postprocess(self, model_outputs: Dict[str, Any], save_path: str):
+    def postprocess(self, model_outputs: Dict[str, Any], save_path: str, auto_unload: bool = True):
         self.load_heartcodec()
         frames = model_outputs["frames"].to(self.device)
         wav = self.audio_codec.detokenize(frames)
         
-
         if wav.dtype != torch.float32:
             wav = wav.to(torch.float32).cpu()
         
         torchaudio.save(save_path, wav, 48000)
-        self.unload_heartcodec()
+        
+        if auto_unload:
+            self.unload_heartcodec()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
+        auto_unload = kwargs.get("auto_unload", True)
         preprocess_kwargs, forward_kwargs, postprocess_kwargs = self._sanitize_parameters(**kwargs)
         model_inputs = self.preprocess(inputs, cfg_scale=preprocess_kwargs["cfg_scale"])
-        model_outputs = self._forward(model_inputs, **forward_kwargs)
-        self.postprocess(model_outputs, **postprocess_kwargs)
+        # Pass auto_unload to forward and postprocess
+        model_outputs = self._forward(model_inputs, auto_unload=auto_unload, **forward_kwargs)
+        self.postprocess(model_outputs, save_path=postprocess_kwargs["save_path"], auto_unload=auto_unload)
 
     def _sanitize_parameters(self, **kwargs):
         return (
@@ -200,10 +205,8 @@ class HeartMuLaGenPipeline:
     def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config: Optional[BitsAndBytesConfig] = None, lazy_load: bool = True):
         heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
         heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
-        
         with open(os.path.join(heartcodec_path, "config.json"), encoding="utf-8") as f:
             num_quantizers = json.load(f).get("num_quantizers", 8)
-
         tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
 
