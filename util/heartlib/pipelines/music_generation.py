@@ -54,7 +54,11 @@ class HeartMuLaGenPipeline:
 
     def load_heartmula(self):
         if self.model is None:
-            self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
+            self.model = HeartMuLa.from_pretrained(
+                self.heartmula_path, 
+                torch_dtype=self.dtype, 
+                quantization_config=self.bnb_config
+            )
         if str(next(self.model.parameters()).device) != str(self.device):
             self.model.to(self.device)
         self.model.eval()
