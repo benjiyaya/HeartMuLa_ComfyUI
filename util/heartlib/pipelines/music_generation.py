@@ -140,9 +140,7 @@ class HeartMuLaGenPipeline:
         return torch.stack(frames).permute(1, 2, 0).squeeze(0).cpu()
 
     def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool, offload_mode: str = "auto"):
-        # Offload model before decode to free VRAM
         if offload_mode == "aggressive":
-            # Aggressive mode: completely delete model to maximize VRAM for decode
             if self.model is not None:
                 del self.model
                 self.model = None
@@ -150,7 +148,6 @@ class HeartMuLaGenPipeline:
             gc.collect()
             torch.cuda.synchronize()
         else:
-            # Auto mode: move model to CPU (can be reloaded faster)
             if self.model is not None:
                 self.model.to("cpu")
                 torch.cuda.empty_cache()
@@ -161,14 +158,13 @@ class HeartMuLaGenPipeline:
             with torch.inference_mode():
                 wav = self.audio_codec.detokenize(frames.to(self.device))
                 wav = wav.detach().cpu().float()
-            # Try torchaudio first, fall back to soundfile if it fails
+            
             try:
                 torchaudio.save(save_path, wav, 48000)
-            except Exception as e:
-                # Fallback to soundfile if torchaudio fails (e.g., torchcodec/FFmpeg issues)
+            except Exception:
                 wav_np = wav.numpy()
                 if wav_np.ndim == 2:
-                    wav_np = wav_np.T  # soundfile expects (samples, channels)
+                    wav_np = wav_np.T
                 sf.write(save_path, wav_np, 48000)
         finally:
             if hasattr(self, 'audio_codec'):
@@ -185,7 +181,6 @@ class HeartMuLaGenPipeline:
                 if self.model is not None:
                     del self.model
                     self.model = None
-
             torch.cuda.empty_cache()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
@@ -200,9 +195,9 @@ class HeartMuLaGenPipeline:
         self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded, offload_mode)
 
     @classmethod
-    def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
+    def from_pretrained(cls, pretrained_path: str, device: torch.device, torch_dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
         heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
         heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
         tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
-        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config)
+        return cls(None, None, None, tokenizer, gen_config, device, torch_dtype, heartmula_path, heartcodec_path, bnb_config)

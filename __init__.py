@@ -21,9 +21,6 @@ util_dir = os.path.join(current_dir, "util")
 if util_dir not in sys.path:
     sys.path.insert(0, util_dir)
 
-# ----------------------------
-# Path Configuration
-# ----------------------------
 folder_paths.add_model_folder_path("HeartMuLa", os.path.join(folder_paths.models_dir, "HeartMuLa"))
 
 def get_model_base_dir():
@@ -34,8 +31,6 @@ def get_model_base_dir():
     return paths[0]
 
 MODEL_BASE_DIR = get_model_base_dir()
-
-
 
 class HeartMuLaModelManager:
     _instance = None
@@ -54,7 +49,7 @@ class HeartMuLaModelManager:
             self._gen_pipes[version] = HeartMuLaGenPipeline.from_pretrained(
                 MODEL_BASE_DIR,
                 device=self._device,
-                dtype=torch.bfloat16,
+                torch_dtype=torch.bfloat16,
                 version=version,
                 lazy_load=True
             )
@@ -127,22 +122,20 @@ class HeartMuLa_Generate:
             torch.cuda.empty_cache()
             gc.collect()
 
-        # Try torchaudio first, fall back to soundfile if it fails
         try:
             waveform, sample_rate = torchaudio.load(out_path)
             waveform = waveform.float()
             if waveform.ndim == 2:
-                waveform = waveform.unsqueeze(0)  # (channels, samples) -> (1, channels, samples)
-        except Exception as e:
-            # Fallback to soundfile if torchaudio fails (e.g., torchcodec/FFmpeg issues)
+                waveform = waveform.unsqueeze(0)
+        except Exception:
             waveform_np, sample_rate = sf.read(out_path)
             if waveform_np.ndim == 1:
-                waveform_np = waveform_np[np.newaxis, :]  # (samples,) -> (1, samples)
+                waveform_np = waveform_np[np.newaxis, :]
             else:
-                waveform_np = waveform_np.T  # (samples, channels) -> (channels, samples)
+                waveform_np = waveform_np.T
             waveform = torch.from_numpy(waveform_np).float()
             if waveform.ndim == 2:
-                waveform = waveform.unsqueeze(0)  # (channels, samples) -> (1, channels, samples)
+                waveform = waveform.unsqueeze(0)
 
         audio_output = {"waveform": waveform, "sample_rate": sample_rate}
         return (audio_output, out_path)
@@ -182,10 +175,10 @@ class HeartMuLa_Transcribe:
         output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"hm_trans_{uuid.uuid4().hex}.wav")
-        # Use soundfile to avoid torchaudio/torchcodec FFmpeg issues
+        
         wav_np = waveform.numpy()
         if wav_np.ndim == 2:
-            wav_np = wav_np.T  # (channels, samples) -> (samples, channels)
+            wav_np = wav_np.T
         sf.write(temp_path, wav_np, sr)
 
         try:
@@ -223,6 +216,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLa_Generate": "HeartMuLa Music Generator",
     "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
 }
-
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
