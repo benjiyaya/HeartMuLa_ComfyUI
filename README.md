@@ -10,8 +10,7 @@ How To Use this In Basic: https://youtu.be/F9LFAeUbBIs
 
 <img width="1418" height="595" alt="image" src="https://github.com/user-attachments/assets/44f4b065-bfe0-405d-8324-e10f5c60b320" />
 
-
-<img width="1396" height="916" alt="image" src="https://github.com/user-attachments/assets/134a7776-6805-42a8-9e49-5852e8ee3ba9" />
+<img width="1737" height="744" alt="e48e0c00-70eb-4ee3-b578-784ff92b1d0c" src="https://github.com/user-attachments/assets/284be3a9-c5ab-402c-a617-fc447b83324b" />
 
 ------------------------------------------------------------
 **Message**
