@@ -13,13 +13,21 @@ How To Use this In Basic: https://youtu.be/F9LFAeUbBIs
 
 <img width="1396" height="916" alt="image" src="https://github.com/user-attachments/assets/134a7776-6805-42a8-9e49-5852e8ee3ba9" />
 
+------------------------------------------------------------
+**Message**
+------------------------------------------------------------
 
+Let's make this project the true open source, anyone who is interested in making improvements feel free to let us know in Discussions : the https://github.com/benjiyaya/HeartMuLa_ComfyUI/discussions
+
+We are not providing service here, we are group of hobbiests, developers who want to make something here.  So don't take it for granted.
 
 ------------------------------------------------------------
 **Update:**
 
 ------------------------------------------------------------
-
+2026-01-21 (3)
+- Precise Temperature: Refined temperature step to 0.01 for more granular control over generation.
+- Intuitive Audio Length: Renamed parameter to max_audio_length_seconds (Default: 240s) for better usability.
 
 2026-01-21 (2) 
 - Lazy Load Optimization , now able to load with 12GB VRAM.  

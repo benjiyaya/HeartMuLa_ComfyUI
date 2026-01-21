@@ -34,7 +34,7 @@ class HeartMuLaGenPipeline:
         text_tokenizer: Tokenizer,
         config: HeartMuLaGenConfig,
         device: torch.device,
-        torch_dtype: torch.dtype,
+        dtype: torch.dtype,
         heartmula_path: Optional[str] = None,
         heartcodec_path: Optional[str] = None,
         bnb_config: Optional[BitsAndBytesConfig] = None,
@@ -46,7 +46,7 @@ class HeartMuLaGenPipeline:
         self.text_tokenizer = text_tokenizer
         self.config = config
         self.device = device
-        self.torch_dtype = torch_dtype
+        self.dtype = dtype
         self.heartmula_path = heartmula_path
         self.heartcodec_path = heartcodec_path
         self.bnb_config = bnb_config
@@ -57,7 +57,7 @@ class HeartMuLaGenPipeline:
         if self.model is None:
             self.model = HeartMuLa.from_pretrained(
                 self.heartmula_path, 
-                torch_dtype=self.torch_dtype, 
+                torch_dtype=self.dtype, 
                 quantization_config=self.bnb_config
             )
         if str(next(self.model.parameters()).device) != str(self.device):
@@ -81,7 +81,7 @@ class HeartMuLaGenPipeline:
         if tags_ids[0] != self.config.text_bos_id: tags_ids = [self.config.text_bos_id] + tags_ids
         if tags_ids[-1] != self.config.text_eos_id: tags_ids = tags_ids + [self.config.text_eos_id]
 
-        muq_embed = torch.zeros([self._muq_dim], dtype=self.torch_dtype, device=self.device)
+        muq_embed = torch.zeros([self._muq_dim], dtype=self.dtype, device=self.device)
         muq_idx = len(tags_ids)
 
         lyrics = inputs["lyrics"].lower()
@@ -114,7 +114,7 @@ class HeartMuLaGenPipeline:
         self.model.setup_caches(2 if cfg_scale != 1.0 else 1)
         
         frames = []
-        with torch.autocast(device_type="cuda", dtype=self.torch_dtype):
+        with torch.autocast(device_type="cuda", dtype=self.dtype):
             curr_token = self.model.generate_frame(
                 tokens=model_inputs["tokens"], tokens_mask=model_inputs["tokens_mask"], 
                 input_pos=model_inputs["pos"], temperature=temperature, topk=topk, 
@@ -130,7 +130,7 @@ class HeartMuLaGenPipeline:
             padded_token = padded_token.unsqueeze(1)
             padded_token_mask = torch.ones_like(padded_token, dtype=torch.bool); padded_token_mask[..., -1] = False
 
-            with torch.autocast(device_type="cuda", dtype=self.torch_dtype):
+            with torch.autocast(device_type="cuda", dtype=self.dtype):
                 curr_token = self.model.generate_frame(
                     tokens=padded_token, tokens_mask=padded_token_mask,
                     input_pos=model_inputs["pos"][..., -1:] + i + 1,
@@ -161,9 +161,10 @@ class HeartMuLaGenPipeline:
             with torch.inference_mode():
                 wav = self.audio_codec.detokenize(frames.to(self.device))
                 wav = wav.detach().cpu().float()
+            
             try:
                 torchaudio.save(save_path, wav, 48000)
-            except Exception as e:
+            except Exception:
                 wav_np = wav.numpy()
                 if wav_np.ndim == 2:
                     wav_np = wav_np.T
@@ -183,7 +184,6 @@ class HeartMuLaGenPipeline:
                 if self.model is not None:
                     del self.model
                     self.model = None
-
             torch.cuda.empty_cache()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
