@@ -5,7 +5,7 @@ import torch
 from typing import Dict, Any, Optional
 import os
 from dataclasses import dataclass
-from tqdm import tqdm
+import comfy.utils
 import torchaudio
 import soundfile as sf
 import json
@@ -122,7 +122,9 @@ class HeartMuLaGenPipeline:
             )
         frames.append(curr_token[0:1,])
 
-        for i in tqdm(range(max_audio_length_ms // 80)):
+        max_frames = max_audio_length_ms // 80
+        pbar = comfy.utils.ProgressBar(max_frames)
+        for i in range(max_frames):
             padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=self.device, dtype=torch.long) * self.config.empty_id)
             padded_token[:, :-1] = curr_token
             padded_token = padded_token.unsqueeze(1)
@@ -134,6 +136,7 @@ class HeartMuLaGenPipeline:
                     input_pos=model_inputs["pos"][..., -1:] + i + 1,
                     temperature=temperature, topk=topk, cfg_scale=cfg_scale,
                 )
+            pbar.update(1)
             if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id): break
             frames.append(curr_token[0:1,])
         
