@@ -26,7 +26,7 @@ How To Use this In Basic: https://youtu.be/F9LFAeUbBIs
 - Path Configuration ,support custom model folder path in in the "extra_model_paths.yaml", Not limited by default ComfyUI/Models/  folder path only.
 
 2026-01-21 
-- MEMORY CLEANUP and Pipeline changed for BF16 - Optimized for 16GB. dtype I don't recommand under bf16 for this model, audio quaility are going to lose too much.
+- MEMORY CLEANUP and Pipeline changed for BF16 - Optimized for 16GB. dtype I don't recommend under bf16 for this model, audio quality will degrade too much.
 
 
 ------------------------------------------------------------

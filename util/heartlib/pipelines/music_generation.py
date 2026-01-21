@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 from tqdm import tqdm
 import torchaudio
+import soundfile as sf
 import json
 import gc
 from transformers import BitsAndBytesConfig
@@ -134,45 +135,65 @@ class HeartMuLaGenPipeline:
         
         return torch.stack(frames).permute(1, 2, 0).squeeze(0).cpu()
 
-    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool):
-        if self.model is not None:
-            self.model.to("cpu")
+    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool, offload_mode: str = "auto"):
+        # Offload model before decode to free VRAM
+        if offload_mode == "aggressive":
+            # Aggressive mode: completely delete model to maximize VRAM for decode
+            if self.model is not None:
+                del self.model
+                self.model = None
             torch.cuda.empty_cache()
             gc.collect()
+            torch.cuda.synchronize()
+        else:
+            # Auto mode: move model to CPU (can be reloaded faster)
+            if self.model is not None:
+                self.model.to("cpu")
+                torch.cuda.empty_cache()
+                gc.collect()
 
         try:
             self.load_heartcodec()
             with torch.inference_mode():
                 wav = self.audio_codec.detokenize(frames.to(self.device))
                 wav = wav.detach().cpu().float()
-            torchaudio.save(save_path, wav, 48000)
+            # Try torchaudio first, fall back to soundfile if it fails
+            try:
+                torchaudio.save(save_path, wav, 48000)
+            except Exception as e:
+                # Fallback to soundfile if torchaudio fails (e.g., torchcodec/FFmpeg issues)
+                wav_np = wav.numpy()
+                if wav_np.ndim == 2:
+                    wav_np = wav_np.T  # soundfile expects (samples, channels)
+                sf.write(save_path, wav_np, 48000)
         finally:
             if hasattr(self, 'audio_codec'):
                 del self.audio_codec
                 self.audio_codec = None
-            
+
             torch.cuda.empty_cache()
             gc.collect()
 
-            if keep_model_loaded:
+            if keep_model_loaded and offload_mode != "aggressive":
                 if self.model is not None:
                     self.model.to(self.device)
             else:
                 if self.model is not None:
                     del self.model
                     self.model = None
-            
+
             torch.cuda.empty_cache()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
         keep_model_loaded = kwargs.get("keep_model_loaded", True)
+        offload_mode = kwargs.get("offload_mode", "auto")
         model_inputs = self.preprocess(inputs, cfg_scale=kwargs.get("cfg_scale", 1.5))
-        frames = self._forward(model_inputs, 
+        frames = self._forward(model_inputs,
                                max_audio_length_ms=kwargs.get("max_audio_length_ms", 120000),
                                temperature=kwargs.get("temperature", 1.0),
                                topk=kwargs.get("topk", 50),
                                cfg_scale=kwargs.get("cfg_scale", 1.5))
-        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded)
+        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded, offload_mode)
 
     @classmethod
     def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):

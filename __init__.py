@@ -2,6 +2,7 @@ import os
 import sys
 import torch
 import torchaudio
+import soundfile as sf
 import numpy as np
 import uuid
 import gc
@@ -85,6 +86,7 @@ class HeartMuLa_Generate:
                 "temperature": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0, "step": 0.05}),
                 "cfg_scale": ("FLOAT", {"default": 1.5, "min": 1.0, "max": 10.0, "step": 0.1}),
                 "keep_model_loaded": ("BOOLEAN", {"default": True}),
+                "offload_mode": (["auto", "aggressive"], {"default": "auto"}),
             }
         }
 
@@ -93,7 +95,7 @@ class HeartMuLa_Generate:
     FUNCTION = "generate"
     CATEGORY = "HeartMuLa"
 
-    def generate(self, lyrics, tags, version, seed, max_audio_length_ms, topk, temperature, cfg_scale, keep_model_loaded):
+    def generate(self, lyrics, tags, version, seed, max_audio_length_ms, topk, temperature, cfg_scale, keep_model_loaded, offload_mode="auto"):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         np.random.seed(seed & 0xFFFFFFFF)
@@ -115,7 +117,8 @@ class HeartMuLa_Generate:
                     topk=topk,
                     temperature=temperature,
                     cfg_scale=cfg_scale,
-                    keep_model_loaded=keep_model_loaded
+                    keep_model_loaded=keep_model_loaded,
+                    offload_mode=offload_mode
                 )
         except Exception as e:
             print(f"Generation failed: {e}")
@@ -124,13 +127,23 @@ class HeartMuLa_Generate:
             torch.cuda.empty_cache()
             gc.collect()
 
-        waveform, sample_rate = torchaudio.load(out_path)
-        if waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0) 
-        waveform = waveform.float()
-        if waveform.ndim == 2:
-            waveform = waveform.unsqueeze(0)
-            
+        # Try torchaudio first, fall back to soundfile if it fails
+        try:
+            waveform, sample_rate = torchaudio.load(out_path)
+            waveform = waveform.float()
+            if waveform.ndim == 2:
+                waveform = waveform.unsqueeze(0)  # (channels, samples) -> (1, channels, samples)
+        except Exception as e:
+            # Fallback to soundfile if torchaudio fails (e.g., torchcodec/FFmpeg issues)
+            waveform_np, sample_rate = sf.read(out_path)
+            if waveform_np.ndim == 1:
+                waveform_np = waveform_np[np.newaxis, :]  # (samples,) -> (1, samples)
+            else:
+                waveform_np = waveform_np.T  # (samples, channels) -> (channels, samples)
+            waveform = torch.from_numpy(waveform_np).float()
+            if waveform.ndim == 2:
+                waveform = waveform.unsqueeze(0)  # (channels, samples) -> (1, channels, samples)
+
         audio_output = {"waveform": waveform, "sample_rate": sample_rate}
         return (audio_output, out_path)
 
@@ -169,7 +182,11 @@ class HeartMuLa_Transcribe:
         output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"hm_trans_{uuid.uuid4().hex}.wav")
-        torchaudio.save(temp_path, waveform, sr)
+        # Use soundfile to avoid torchaudio/torchcodec FFmpeg issues
+        wav_np = waveform.numpy()
+        if wav_np.ndim == 2:
+            wav_np = wav_np.T  # (channels, samples) -> (samples, channels)
+        sf.write(temp_path, wav_np, sr)
 
         try:
             temp_tuple = tuple(float(x.strip()) for x in temperature_tuple.split(","))
