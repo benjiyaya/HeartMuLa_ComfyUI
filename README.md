@@ -10,23 +10,37 @@ How To Use this In Basic: https://youtu.be/F9LFAeUbBIs
 
 <img width="1418" height="595" alt="image" src="https://github.com/user-attachments/assets/44f4b065-bfe0-405d-8324-e10f5c60b320" />
 
+<img width="1737" height="744" alt="e48e0c00-70eb-4ee3-b578-784ff92b1d0c" src="https://github.com/user-attachments/assets/284be3a9-c5ab-402c-a617-fc447b83324b" />
 
-<img width="1396" height="916" alt="image" src="https://github.com/user-attachments/assets/134a7776-6805-42a8-9e49-5852e8ee3ba9" />
+------------------------------------------------------------
+**Message**
+------------------------------------------------------------
 
+Let's make this project the true open source, anyone who is interested in making improvements feel free to let us know in Discussions : the https://github.com/benjiyaya/HeartMuLa_ComfyUI/discussions
 
+We are not providing service here, we are group of hobbiests, developers who want to make something here.  So don't take it for granted.
 
 ------------------------------------------------------------
 **Update:**
 
 ------------------------------------------------------------
-
+2026-01-21 (3)
+- Integrates native progress bars, making it easy to implement real-time progress tracking in the user interface.
+- Precise Temperature: Refined temperature step to 0.01 for more granular control over generation.
+- Intuitive Audio Length: Renamed parameter to max_audio_length_seconds (Default: 240s) for better usability.
+- Keep Model Loaded(Memory Settings):
+True: Keep model in VRAM for instant subsequent generations.
+False: Unload model after each task to free up memory.
+- Offload Mode:
+Auto: Standard memory release for balanced performance.
+Aggressive: Full VRAM wipe + Garbage Collection. 
 
 2026-01-21 (2) 
 - Lazy Load Optimization , now able to load with 12GB VRAM.  
 - Path Configuration ,support custom model folder path in in the "extra_model_paths.yaml", Not limited by default ComfyUI/Models/  folder path only.
 
 2026-01-21 
-- MEMORY CLEANUP and Pipeline changed for BF16 - Optimized for 16GB. dtype I don't recommand under bf16 for this model, audio quaility are going to lose too much.
+- MEMORY CLEANUP and Pipeline changed for BF16 - Optimized for 16GB. dtype I don't recommand under bf16 for this model, audio quality will degrade too much.
 
 
 ------------------------------------------------------------
@@ -49,6 +63,17 @@ cd /HeartMuLa_ComfyUI
 **Step 3**
 
 pip install -r requirements.txt
+
+If no module name error pop up.
+some libraries might need to install Individually (For Windows users you need use Command Prompt as Administrator)
+
+do this :
+
+pip install soundfile
+
+pip install torchtune
+
+pip install torchao
 
 ------------------------------------------------------------
 

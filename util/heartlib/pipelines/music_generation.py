@@ -1,4 +1,3 @@
-import soundfile as sf
 from tokenizers import Tokenizer
 from ..heartmula.modeling_heartmula import HeartMuLa
 from ..heartcodec.modeling_heartcodec import HeartCodec
@@ -6,7 +5,9 @@ import torch
 from typing import Dict, Any, Optional
 import os
 from dataclasses import dataclass
-from tqdm import tqdm
+import comfy.utils
+import torchaudio
+import soundfile as sf
 import json
 import gc
 from transformers import BitsAndBytesConfig
@@ -54,7 +55,11 @@ class HeartMuLaGenPipeline:
 
     def load_heartmula(self):
         if self.model is None:
-            self.model = HeartMuLa.from_pretrained(self.heartmula_path, dtype=self.dtype, quantization_config=self.bnb_config)
+            self.model = HeartMuLa.from_pretrained(
+                self.heartmula_path, 
+                torch_dtype=self.dtype, 
+                quantization_config=self.bnb_config
+            )
         if str(next(self.model.parameters()).device) != str(self.device):
             self.model.to(self.device)
         self.model.eval()
@@ -117,7 +122,9 @@ class HeartMuLaGenPipeline:
             )
         frames.append(curr_token[0:1,])
 
-        for i in tqdm(range(max_audio_length_ms // 80)):
+        max_frames = max_audio_length_ms // 80
+        pbar = comfy.utils.ProgressBar(max_frames)
+        for i in range(max_frames):
             padded_token = (torch.ones((curr_token.shape[0], self._parallel_number), device=self.device, dtype=torch.long) * self.config.empty_id)
             padded_token[:, :-1] = curr_token
             padded_token = padded_token.unsqueeze(1)
@@ -129,58 +136,71 @@ class HeartMuLaGenPipeline:
                     input_pos=model_inputs["pos"][..., -1:] + i + 1,
                     temperature=temperature, topk=topk, cfg_scale=cfg_scale,
                 )
+            pbar.update(1)
             if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id): break
             frames.append(curr_token[0:1,])
         
         return torch.stack(frames).permute(1, 2, 0).squeeze(0).cpu()
 
-    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool):
-        if self.model is not None:
-            self.model.to("cpu")
+    def postprocess(self, frames: torch.Tensor, save_path: str, keep_model_loaded: bool, offload_mode: str = "auto"):
+        if offload_mode == "aggressive":
+            if self.model is not None:
+                del self.model
+                self.model = None
             torch.cuda.empty_cache()
             gc.collect()
+            torch.cuda.synchronize()
+        else:
+            if self.model is not None:
+                self.model.to("cpu")
+                torch.cuda.empty_cache()
+                gc.collect()
 
         try:
             self.load_heartcodec()
             with torch.inference_mode():
                 wav = self.audio_codec.detokenize(frames.to(self.device))
                 wav = wav.detach().cpu().float()
-            sf.write(save_path, wav.t().numpy(), 48000)
+            
+            try:
+                torchaudio.save(save_path, wav, 48000)
+            except Exception:
+                wav_np = wav.numpy()
+                if wav_np.ndim == 2:
+                    wav_np = wav_np.T
+                sf.write(save_path, wav_np, 48000)
         finally:
             if hasattr(self, 'audio_codec'):
                 del self.audio_codec
                 self.audio_codec = None
-            
+
             torch.cuda.empty_cache()
             gc.collect()
 
-            if keep_model_loaded:
+            if keep_model_loaded and offload_mode != "aggressive":
                 if self.model is not None:
                     self.model.to(self.device)
             else:
                 if self.model is not None:
                     del self.model
                     self.model = None
-            
             torch.cuda.empty_cache()
 
     def __call__(self, inputs: Dict[str, Any], **kwargs):
         keep_model_loaded = kwargs.get("keep_model_loaded", True)
+        offload_mode = kwargs.get("offload_mode", "auto")
         model_inputs = self.preprocess(inputs, cfg_scale=kwargs.get("cfg_scale", 1.5))
-        frames = self._forward(model_inputs, 
+        frames = self._forward(model_inputs,
                                max_audio_length_ms=kwargs.get("max_audio_length_ms", 120000),
                                temperature=kwargs.get("temperature", 1.0),
                                topk=kwargs.get("topk", 50),
                                cfg_scale=kwargs.get("cfg_scale", 1.5))
-        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded)
+        self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded, offload_mode)
 
     @classmethod
-    def from_pretrained(cls, pretrained_path: str, device: torch.device, dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
+    def from_pretrained(cls, pretrained_path: str, device: torch.device, torch_dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
         heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
         heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
-        print(f"pretrained_path: {pretrained_path}")
-        tokenizer_path = os.path.join(pretrained_path, "tokenizer.json")
-        print(f"Loading tokenizer from: {tokenizer_path}")
-        tokenizer = Tokenizer.from_file(tokenizer_path)
+        tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
-        return cls(None, None, None, tokenizer, gen_config, device, dtype, heartmula_path, heartcodec_path, bnb_config)
+        return cls(None, None, None, tokenizer, gen_config, device, torch_dtype, heartmula_path, heartcodec_path, bnb_config)
