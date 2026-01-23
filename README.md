@@ -35,6 +35,14 @@ We are not providing service here, we are group of hobbiests, developers who wan
 **Update:**
 
 ------------------------------------------------------------
+2026-01-23 :
+Support new model from HeartMuLa
+HeartMuLa-RL-oss-3B-20260123
+https://huggingface.co/HeartMuLa/HeartMuLa-RL-oss-3B-20260123
+HeartCodec-oss-20260123
+https://huggingface.co/HeartMuLa/HeartCodec-oss-20260123
+
+
 2026-01-22 (2) :
 thank you [@zboyles](https://github.com/zboyles) for making this custom node support Apple M-series!
 
@@ -122,13 +130,24 @@ Use HuggingFace Cli download model weights.
 
 type :
 
+1
 hf download HeartMuLa/HeartMuLaGen --local-dir ./HeartMuLa
 
+2
 hf download HeartMuLa/HeartMuLa-oss-3B --local-dir ./HeartMuLa/HeartMuLa-oss-3B
+or 
+hf download HeartMuLa/HeartMuLa-RL-oss-3B-20260123 --local-dir ./HeartMuLa/HeartMuLa-RL-oss-3B-20260123
 
+3
 hf download HeartMuLa/HeartCodec-oss --local-dir ./HeartMuLa/HeartCodec-oss
+or
+hf download HeartMuLa/HeartCodec-oss-20260123 --local-dir ./HeartMuLa/HeartCodec-oss-20260123
 
+4
 hf download HeartMuLa/HeartTranscriptor-oss --local-dir ./HeartMuLa/HeartTranscriptor-oss
+
+
+***If you download oss-20260123 for HeartMuLa-3B,  you must need to use HeartCodec-oss-20260123
 
 
 ------------------------------------------------------------
