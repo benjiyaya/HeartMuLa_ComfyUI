@@ -1,7 +1,25 @@
+import sys
+import types
+from importlib.machinery import ModuleSpec
+
+if "torchcodec" not in sys.modules:
+    try:
+        _m = types.ModuleType("torchcodec")
+        _m.__spec__ = ModuleSpec("torchcodec", None, origin="built-in")
+        _m.__version__ = "0.2.0"
+        _d = types.ModuleType("torchcodec.decoders")
+        class MockDecoder: pass
+        _d.AudioDecoder = MockDecoder
+        _d.VideoDecoder = MockDecoder
+        _m.decoders = _d
+        sys.modules["torchcodec"] = _m
+        sys.modules["torchcodec.decoders"] = _d
+    except Exception:
+        pass
+
 import gc
 import logging
 import os
-import sys
 import uuid
 import warnings
 
@@ -37,7 +55,6 @@ def get_model_base_dir():
 MODEL_BASE_DIR = get_model_base_dir()
 
 def _get_device():
-    """Get the best available device: CUDA > MPS > CPU"""
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -45,9 +62,8 @@ def _get_device():
     return torch.device("cpu")
 
 def _get_dtype(device: torch.device):
-    """Get the appropriate dtype for the device. MPS has limited bfloat16 support."""
     if device.type == "mps":
-        return torch.float32  # MPS bfloat16 causes dtype mismatches in linear layers
+        return torch.float32  
     return torch.bfloat16
 
 class HeartMuLaModelManager:
@@ -62,7 +78,9 @@ class HeartMuLaModelManager:
         return cls._instance
 
     def get_gen_pipeline(self, version="3B", codec_version="oss", quantize_4bit=False):
-        # 缓存键包含 codec_version 以确保切换时能正确加载
+        if codec_version is None or str(codec_version).lower() == "none" or codec_version == "":
+            codec_version = "oss"
+
         key = (version, codec_version, quantize_4bit)
         if key not in self._gen_pipes:
             from heartlib import HeartMuLaGenPipeline
@@ -72,16 +90,14 @@ class HeartMuLaModelManager:
             bnb_config = None
             if quantize_4bit:
                 if self._device.type != "cuda":
-                    print(f"HeartMuLa: 4-bit quantization requires CUDA. Ignoring quantize_4bit on {self._device.type}.")
+                    print(f"HeartMuLa: 4-bit quantization requires CUDA.")
                 else:
                     quant_type = "nf4"
                     try:
                         major, _ = torch.cuda.get_device_capability()
                         if major >= 10:
                             quant_type = "fp4"
-                            print(f"HeartMuLa: Detected Blackwell GPU (Compute {major}.x), using native FP4 quantization.")
-                    except:
-                        pass
+                    except: pass
 
                     bnb_config = BitsAndBytesConfig(
                         load_in_4bit=True,
@@ -90,7 +106,6 @@ class HeartMuLaModelManager:
                         bnb_4bit_use_double_quant=True,
                     )
 
-            print(f"HeartMuLa: Loading model on {self._device} with dtype {model_dtype}")
             self._gen_pipes[key] = HeartMuLaGenPipeline.from_pretrained(
                 MODEL_BASE_DIR,
                 device=self._device,
@@ -148,7 +163,6 @@ class HeartMuLa_Generate:
         np.random.seed(seed & 0xFFFFFFFF)
 
         max_audio_length_ms = int(max_audio_length_seconds * 1000)
-
         manager = HeartMuLaModelManager()
         pipe = manager.get_gen_pipeline(version, codec_version=codec_version, quantize_4bit=quantize_4bit)
 
@@ -159,38 +173,24 @@ class HeartMuLa_Generate:
 
         try:
             with torch.inference_mode():
-                pipe(
-                    {"lyrics": lyrics, "tags": tags},
-                    max_audio_length_ms=max_audio_length_ms,
-                    save_path=out_path,
-                    topk=topk,
-                    temperature=temperature,
-                    cfg_scale=cfg_scale,
-                    keep_model_loaded=keep_model_loaded,
-                    offload_mode=offload_mode
-                )
+                pipe({"lyrics": lyrics, "tags": tags}, max_audio_length_ms=max_audio_length_ms, save_path=out_path, topk=topk, temperature=temperature, cfg_scale=cfg_scale, keep_model_loaded=keep_model_loaded, offload_mode=offload_mode)
         except Exception as e:
             print(f"Generation failed: {e}")
             raise e
         finally:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            if torch.cuda.is_available(): torch.cuda.empty_cache()
             gc.collect()
 
         try:
             waveform, sample_rate = torchaudio.load(out_path)
             waveform = waveform.float()
-            if waveform.ndim == 2:
-                waveform = waveform.unsqueeze(0)
+            if waveform.ndim == 2: waveform = waveform.unsqueeze(0)
         except Exception:
             waveform_np, sample_rate = sf.read(out_path)
-            if waveform_np.ndim == 1:
-                waveform_np = waveform_np[np.newaxis, :]
-            else:
-                waveform_np = waveform_np.T
+            if waveform_np.ndim == 1: waveform_np = waveform_np[np.newaxis, :]
+            else: waveform_np = waveform_np.T
             waveform = torch.from_numpy(waveform_np).float()
-            if waveform.ndim == 2:
-                waveform = waveform.unsqueeze(0)
+            if waveform.ndim == 2: waveform = waveform.unsqueeze(0)
 
         audio_output = {"waveform": waveform, "sample_rate": sample_rate}
         return (audio_output, out_path)
@@ -213,18 +213,18 @@ class HeartMuLa_Transcribe:
     CATEGORY = "HeartMuLa"
 
     def transcribe(self, audio_input, temperature_tuple, no_speech_threshold, logprob_threshold):
+        try:
+            torchaudio.set_audio_backend("soundfile")
+        except: pass
+
         if isinstance(audio_input, dict):
-            waveform = audio_input["waveform"]
-            sr = audio_input["sample_rate"]
+            waveform, sr = audio_input["waveform"], audio_input["sample_rate"]
         else:
             sr, waveform = audio_input
-            if isinstance(waveform, np.ndarray):
-                 waveform = torch.from_numpy(waveform)
+            if isinstance(waveform, np.ndarray): waveform = torch.from_numpy(waveform)
 
-        if waveform.ndim == 3:
-            waveform = waveform.squeeze(0)
-        elif waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0)
+        if waveform.ndim == 3: waveform = waveform.squeeze(0)
+        elif waveform.ndim == 1: waveform = waveform.unsqueeze(0)
 
         waveform = waveform.to(torch.float32).cpu()
         output_dir = folder_paths.get_temp_directory()
@@ -232,32 +232,22 @@ class HeartMuLa_Transcribe:
         temp_path = os.path.join(output_dir, f"hm_trans_{uuid.uuid4().hex}.wav")
 
         wav_np = waveform.numpy()
-        if wav_np.ndim == 2:
-            wav_np = wav_np.T
+        if wav_np.ndim == 2: wav_np = wav_np.T
         sf.write(temp_path, wav_np, sr)
 
         try:
             temp_tuple = tuple(float(x.strip()) for x in temperature_tuple.split(","))
-        except:
-            temp_tuple = (0.0, 0.1, 0.2, 0.4)
+        except: temp_tuple = (0.0, 0.1, 0.2, 0.4)
 
         manager = HeartMuLaModelManager()
         pipe = manager.get_transcribe_pipeline()
 
         try:
             with torch.inference_mode():
-                result = pipe(
-                    temp_path,
-                    temperature=temp_tuple,
-                    no_speech_threshold=no_speech_threshold,
-                    logprob_threshold=logprob_threshold,
-                    task="transcribe",
-                )
+                result = pipe(temp_path, temperature=temp_tuple, no_speech_threshold=no_speech_threshold, logprob_threshold=logprob_threshold, task="transcribe")
         finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            if os.path.exists(temp_path): os.remove(temp_path)
+            if torch.cuda.is_available(): torch.cuda.empty_cache()
             gc.collect()
 
         text = result if isinstance(result, str) else result.get("text", str(result))
@@ -272,6 +262,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLa_Generate": "HeartMuLa Music Generator",
     "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
 }
-
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
