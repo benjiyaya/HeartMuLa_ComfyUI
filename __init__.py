@@ -61,8 +61,9 @@ class HeartMuLaModelManager:
             cls._instance = super(HeartMuLaModelManager, cls).__new__(cls)
         return cls._instance
 
-    def get_gen_pipeline(self, version="3B", quantize_4bit=False):
-        key = (version, quantize_4bit)
+    def get_gen_pipeline(self, version="3B", codec_version="oss", quantize_4bit=False):
+        # 缓存键包含 codec_version 以确保切换时能正确加载
+        key = (version, codec_version, quantize_4bit)
         if key not in self._gen_pipes:
             from heartlib import HeartMuLaGenPipeline
 
@@ -95,6 +96,7 @@ class HeartMuLaModelManager:
                 device=self._device,
                 torch_dtype=model_dtype,
                 version=version,
+                codec_version=codec_version,
                 lazy_load=True,
                 bnb_config=bnb_config
             )
@@ -121,7 +123,8 @@ class HeartMuLa_Generate:
             "required": {
                 "lyrics": ("STRING", {"multiline": True, "placeholder": "[Verse]\n..."}),
                 "tags": ("STRING", {"multiline": True, "placeholder": "piano,happy,wedding"}),
-                "version": (["3B", "7B"], {"default": "3B"}),
+                "version": (["3B", "7B", "RL-oss-3B-20260123"], {"default": "3B"}),
+                "codec_version": (["oss", "oss-20260123"], {"default": "oss"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "max_audio_length_seconds": ("INT", {"default": 240, "min": 10, "max": 600, "step": 1}),
                 "topk": ("INT", {"default": 50, "min": 1, "max": 250, "step": 1}),
@@ -138,7 +141,7 @@ class HeartMuLa_Generate:
     FUNCTION = "generate"
     CATEGORY = "HeartMuLa"
 
-    def generate(self, lyrics, tags, version, seed, max_audio_length_seconds, topk, temperature, cfg_scale, keep_model_loaded, offload_mode="auto", quantize_4bit=False):
+    def generate(self, lyrics, tags, version, codec_version, seed, max_audio_length_seconds, topk, temperature, cfg_scale, keep_model_loaded, offload_mode="auto", quantize_4bit=False):
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
@@ -147,7 +150,7 @@ class HeartMuLa_Generate:
         max_audio_length_ms = int(max_audio_length_seconds * 1000)
 
         manager = HeartMuLaModelManager()
-        pipe = manager.get_gen_pipeline(version, quantize_4bit=quantize_4bit)
+        pipe = manager.get_gen_pipeline(version, codec_version=codec_version, quantize_4bit=quantize_4bit)
 
         output_dir = folder_paths.get_output_directory()
         os.makedirs(output_dir, exist_ok=True)

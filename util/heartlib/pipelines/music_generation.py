@@ -118,8 +118,6 @@ class HeartMuLaGenPipeline:
         if self.device.type == "cuda":
             return torch.autocast(device_type="cuda", dtype=self.dtype)
         elif self.device.type == "mps":
-            # MPS has limited bfloat16 support; use inference_mode without autocast
-            # The model is already in float32 for MPS, so no autocast needed
             return torch.inference_mode()
         else:
             return torch.inference_mode()
@@ -161,7 +159,6 @@ class HeartMuLaGenPipeline:
         """Empty GPU cache for the appropriate device."""
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        # MPS doesn't have an equivalent empty_cache, memory is managed automatically
 
     def _synchronize(self):
         """Synchronize device operations."""
@@ -226,9 +223,18 @@ class HeartMuLaGenPipeline:
         self.postprocess(frames, kwargs.get("save_path", "out.wav"), keep_model_loaded, offload_mode)
 
     @classmethod
-    def from_pretrained(cls, pretrained_path: str, device: torch.device, torch_dtype: torch.dtype, version: str, bnb_config=None, lazy_load=True):
-        heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
-        heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
+    def from_pretrained(cls, pretrained_path: str, device: torch.device, torch_dtype: torch.dtype, version: str, codec_version: str = "oss", bnb_config=None, lazy_load=True):
+        # 动态拼接 Codec 路径
+        heartcodec_path = os.path.join(pretrained_path, f"HeartCodec-{codec_version}")
+        
+        # 动态匹配模型文件夹名称
+        if "RL" in version or "2026" in version:
+            # 匹配 HeartMuLa-RL-oss-3B-20260123 这种格式
+            heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-{version}")
+        else:
+            # 匹配原有的 HeartMuLa-oss-3B 格式
+            heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
+            
         tokenizer = Tokenizer.from_file(os.path.join(pretrained_path, "tokenizer.json"))
         gen_config = HeartMuLaGenConfig.from_file(os.path.join(pretrained_path, "gen_config.json"))
         return cls(None, None, None, tokenizer, gen_config, device, torch_dtype, heartmula_path, heartcodec_path, bnb_config)
