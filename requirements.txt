@@ -13,3 +13,7 @@ omegaconf
 bitsandbytes
 torch
 torchcodec
+
+# Required by einx (dependency of vector_quantize_pytorch) - registers jax backend on import
+jax
+jaxlib
