@@ -166,7 +166,7 @@ class HeartMuLa_Generate:
         manager = HeartMuLaModelManager()
         pipe = manager.get_gen_pipeline(version, codec_version=codec_version, quantize_4bit=quantize_4bit)
 
-        output_dir = folder_paths.get_output_directory()
+        output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
         filename = f"heartmula_gen_{uuid.uuid4().hex}.wav"
         out_path = os.path.join(output_dir, filename)
@@ -262,5 +262,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLa_Generate": "HeartMuLa Music Generator",
     "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
 }
+
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
