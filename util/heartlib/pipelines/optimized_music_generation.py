@@ -128,6 +128,7 @@ from tokenizers import Tokenizer
 from transformers import BitsAndBytesConfig
 
 # ComfyUI integration (optional dependency)
+# Just for the progress-bar integration, otherwise this file is Comfy dependency free
 try:
     import comfy.utils
     HAS_COMFY = True
@@ -499,7 +500,7 @@ class OptimizedHeartMuLaGenPipeline:
         String comparison on device handles edge cases (cuda:0 vs cuda).
         """
         if self.model is None:
-            print(f"📥 Loading HeartMuLa from {self.heartmula_path}...")
+            print(f"Loading HeartMuLa from {self.heartmula_path}...")
             self.model = HeartMuLa.from_pretrained(
                 self.heartmula_path,
                 torch_dtype=self.dtype,
@@ -541,7 +542,7 @@ class OptimizedHeartMuLaGenPipeline:
         Loading them sequentially (not simultaneously) halves peak VRAM.
         """
         if self.audio_codec is None:
-            print(f"📥 Loading HeartCodec from {self.heartcodec_path}...")
+            print(f"Loading HeartCodec from {self.heartcodec_path}...")
             self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
 
         if str(next(self.audio_codec.parameters()).device) != str(self.device):
