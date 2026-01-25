@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HeartMuLa Player</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --bg-primary: #0d0d12;
+            --bg-secondary: #16161d;
+            --bg-tertiary: #1e1e28;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border: #27272a;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            background: var(--bg-primary);
+            font-family: 'Inter', system-ui, sans-serif;
+            color: var(--text-primary);
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo svg {
+            width: 32px;
+            height: 32px;
+            color: var(--accent);
+        }
+
+        .logo h1 {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .nav-section {
+            padding: 1rem 0.75rem;
+        }
+
+        .nav-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            padding: 0.5rem 0.75rem;
+        }
+
+        .playlist {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .track {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .track:hover { background: var(--bg-tertiary); }
+        .track.active { background: var(--accent); }
+
+        .track-num {
+            width: 24px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .track.active .track-num { color: var(--text-primary); }
+
+        .track-info { flex: 1; min-width: 0; }
+
+        .track-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-artist {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .track.active .track-artist { color: rgba(255,255,255,0.7); }
+
+        .track-duration {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Main */
+        .main {
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .now-playing {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .cover {
+            width: 200px;
+            height: 200px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .cover svg {
+            width: 64px;
+            height: 64px;
+            color: var(--text-muted);
+        }
+
+        .song-details { flex: 1; }
+
+        .song-genre {
+            display: inline-block;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--accent);
+            background: rgba(99, 102, 241, 0.15);
+            padding: 0.25rem 0.625rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+        }
+
+        .song-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .song-artist {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .song-lang {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Controls */
+        .controls {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-wrap {
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            width: 0%;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            right: -5px;
+            top: -3px;
+            width: 10px;
+            height: 10px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .progress-bar:hover .progress-fill::after { opacity: 1; }
+
+        .time-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.375rem;
+        }
+
+        .btn-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .btn-ctrl {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .btn-ctrl:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .btn-ctrl svg { width: 20px; height: 20px; }
+
+        .btn-play {
+            width: 52px;
+            height: 52px;
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-play:hover { background: var(--accent-hover); }
+        .btn-play svg { width: 24px; height: 24px; }
+
+        /* Mode tabs */
+        .tabs {
+            display: flex;
+            gap: 0.25rem;
+            background: var(--bg-secondary);
+            padding: 0.25rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            width: fit-content;
+        }
+
+        .tab {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            transition: all 0.15s;
+        }
+
+        .tab:hover { color: var(--text-primary); }
+        .tab.active { background: var(--accent); color: white; }
+        .tab svg { width: 16px; height: 16px; }
+
+        /* Lyrics panel */
+        .panel {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.25rem;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .panel.hidden { display: none; }
+
+        .lyrics-text {
+            font-size: 0.9rem;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+
+        .lyrics-text .section {
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+
+        /* Karaoke */
+        .karaoke-container {
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .karaoke-line {
+            font-size: 1.5rem;
+            font-weight: 600;
+            text-align: center;
+            padding: 0.5rem;
+            transition: all 0.25s;
+            opacity: 0.2;
+        }
+
+        .karaoke-line.active { opacity: 1; }
+        .karaoke-line.past { opacity: 0.15; }
+
+        .word {
+            display: inline-block;
+            padding: 0 0.1em;
+            transition: all 0.1s;
+        }
+
+        .word.sung {
+            color: var(--accent);
+            text-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+        }
+
+        .word.current {
+            color: var(--text-primary);
+            transform: scale(1.1);
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.4);
+        }
+
+        .no-karaoke {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 2rem;
+        }
+
+        .no-karaoke p { margin-bottom: 1rem; }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        .btn-ghost {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .btn-ghost:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        /* Load modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            z-index: 100;
+        }
+
+        .modal-overlay.show { display: flex; align-items: center; justify-content: center; }
+
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid var(--border);
+        }
+
+        .modal h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .modal textarea {
+            width: 100%;
+            height: 160px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.875rem;
+            color: var(--text-primary);
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            resize: none;
+        }
+
+        .modal textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .modal-btns {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .app { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+            .now-playing { flex-direction: column; align-items: center; text-align: center; }
+        }
+
+        audio { display: none; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="logo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18V5l12-2v13"/>
+                    <circle cx="6" cy="18" r="3"/>
+                    <circle cx="18" cy="16" r="3"/>
+                </svg>
+                <h1>HeartMuLa</h1>
+            </div>
+            <div class="nav-section">
+                <div class="nav-label">Library</div>
+            </div>
+            <div class="playlist" id="playlist"></div>
+        </aside>
+
+        <main class="main">
+            <div class="now-playing">
+                <div class="cover" id="cover">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M9 18V5l12-2v13"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                </div>
+                <div class="song-details">
+                    <span class="song-genre" id="genre">-</span>
+                    <h2 class="song-title" id="title">No song loaded</h2>
+                    <p class="song-artist" id="artist">-</p>
+                    <span class="song-lang" id="lang">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                        <span id="langText">-</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="progress-wrap">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="time-row">
+                        <span id="currentTime">0:00</span>
+                        <span id="totalTime">0:00</span>
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-ctrl" onclick="prevTrack()">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z"/></svg>
+                    </button>
+                    <button class="btn-ctrl btn-play" id="playBtn" onclick="togglePlay()">
+                        <svg viewBox="0 0 24 24" fill="currentColor" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+                    <button class="btn-ctrl" onclick="nextTrack()">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" id="tabLyrics" onclick="setTab('lyrics')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                    Lyrics
+                </button>
+                <button class="tab" id="tabKaraoke" onclick="setTab('karaoke')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
+                    Karaoke
+                </button>
+            </div>
+
+            <div class="panel" id="lyricsPanel">
+                <div class="lyrics-text" id="lyricsText">Select a song to view lyrics</div>
+            </div>
+
+            <div class="panel hidden" id="karaokePanel">
+                <div class="karaoke-container" id="karaokeContainer">
+                    <div class="no-karaoke">
+                        <p>No word timestamps for this song</p>
+                        <button class="btn btn-ghost" onclick="showLoadModal()">Load timestamps</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Load Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="hideLoadModal()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15l3 3 3-3"/></svg>
+                Load Word Timestamps
+            </h3>
+            <textarea id="timestampInput" placeholder='Paste JSON array:
+[{"word": "Hello", "start": 0.0, "end": 0.5}, ...]
+
+Or LRC format:
+[00:00.00]Hello [00:00.50]world'></textarea>
+            <div class="modal-btns">
+                <button class="btn btn-ghost" onclick="hideLoadModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="loadTimestamps()">Load</button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audio"></audio>
+
+    <script>
+        // Song data loaded from folders
+        let songs = [];
+        let currentIndex = 0;
+        let currentTab = 'lyrics';
+        let isPlaying = false;
+
+        const audio = document.getElementById('audio');
+        const playBtn = document.getElementById('playBtn');
+        const playIcon = document.getElementById('playIcon');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+
+        // Initialize - load songs from predefined list
+        // In a real app, this would scan the folder via a backend
+        async function init() {
+            const songFolders = [
+                '01_Optimized'
+            ];
+
+            for (const folder of songFolders) {
+                try {
+                    const meta = await fetch(`${folder}/meta.json`).then(r => r.json());
+                    const lyrics = await fetch(`${folder}/lyrics.txt`).then(r => r.text()).catch(() => '');
+                    let words = null;
+                    try {
+                        words = await fetch(`${folder}/words.json`).then(r => r.json());
+                    } catch {}
+
+                    songs.push({
+                        folder,
+                        ...meta,
+                        lyrics,
+                        words,
+                        audio: `${folder}/audio.wav`
+                    });
+                } catch (e) {
+                    console.error(`Failed to load ${folder}:`, e);
+                }
+            }
+
+            renderPlaylist();
+            if (songs.length > 0) {
+                loadSong(0);
+            }
+        }
+
+        function renderPlaylist() {
+            const el = document.getElementById('playlist');
+            el.innerHTML = songs.map((s, i) => `
+                <div class="track ${i === currentIndex ? 'active' : ''}" onclick="loadSong(${i})">
+                    <span class="track-num">${i + 1}</span>
+                    <div class="track-info">
+                        <div class="track-title">${s.title}</div>
+                        <div class="track-artist">${s.artist}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function loadSong(index) {
+            currentIndex = index;
+            const song = songs[index];
+
+            document.getElementById('genre').textContent = song.genre;
+            document.getElementById('title').textContent = song.title;
+            document.getElementById('artist').textContent = song.artist;
+            document.getElementById('langText').textContent = song.language;
+
+            // Lyrics
+            const lyricsHtml = song.lyrics.replace(/\[([^\]]+)\]/g, '<span class="section">[$1]</span>');
+            document.getElementById('lyricsText').innerHTML = lyricsHtml || 'No lyrics available';
+
+            // Karaoke
+            renderKaraoke(song);
+
+            // Audio
+            audio.src = song.audio;
+            renderPlaylist();
+        }
+
+        function renderKaraoke(song) {
+            const container = document.getElementById('karaokeContainer');
+
+            if (!song.words || song.words.length === 0) {
+                container.innerHTML = `
+                    <div class="no-karaoke">
+                        <p>No word timestamps for this song</p>
+                        <button class="btn btn-ghost" onclick="showLoadModal()">Load timestamps</button>
+                    </div>
+                `;
+                return;
+            }
+
+            const wordsPerLine = 6;
+            const lines = [];
+            for (let i = 0; i < song.words.length; i += wordsPerLine) {
+                lines.push(song.words.slice(i, i + wordsPerLine));
+            }
+
+            container.innerHTML = lines.map((lineWords, li) => {
+                const wordsHtml = lineWords.map((w, wi) => {
+                    const gi = li * wordsPerLine + wi;
+                    return `<span class="word" data-i="${gi}" data-s="${w.start}" data-e="${w.end}">${w.word}</span>`;
+                }).join(' ');
+                return `<div class="karaoke-line" data-l="${li}">${wordsHtml}</div>`;
+            }).join('');
+        }
+
+        function updateKaraoke(time) {
+            const words = document.querySelectorAll('#karaokeContainer .word');
+            const lines = document.querySelectorAll('.karaoke-line');
+            let activeLine = 0;
+
+            words.forEach((w, i) => {
+                const s = parseFloat(w.dataset.s);
+                const e = parseFloat(w.dataset.e);
+                w.classList.remove('current', 'sung');
+
+                if (time >= s && time < e) {
+                    w.classList.add('current');
+                    activeLine = Math.floor(i / 6);
+                } else if (time >= e) {
+                    w.classList.add('sung');
+                }
+            });
+
+            lines.forEach((l, i) => {
+                l.classList.remove('active', 'past');
+                if (i === activeLine) l.classList.add('active');
+                else if (i < activeLine) l.classList.add('past');
+            });
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                audio.pause();
+                playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+            } else {
+                audio.play();
+                playIcon.innerHTML = '<path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>';
+            }
+            isPlaying = !isPlaying;
+        }
+
+        function prevTrack() {
+            const prev = (currentIndex - 1 + songs.length) % songs.length;
+            loadSong(prev);
+            if (isPlaying) audio.play();
+        }
+
+        function nextTrack() {
+            const next = (currentIndex + 1) % songs.length;
+            loadSong(next);
+            if (isPlaying) audio.play();
+        }
+
+        function setTab(tab) {
+            currentTab = tab;
+            document.getElementById('tabLyrics').classList.toggle('active', tab === 'lyrics');
+            document.getElementById('tabKaraoke').classList.toggle('active', tab === 'karaoke');
+            document.getElementById('lyricsPanel').classList.toggle('hidden', tab !== 'lyrics');
+            document.getElementById('karaokePanel').classList.toggle('hidden', tab !== 'karaoke');
+        }
+
+        function formatTime(s) {
+            if (isNaN(s)) return '0:00';
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return `${m}:${sec.toString().padStart(2, '0')}`;
+        }
+
+        // Audio events
+        audio.addEventListener('timeupdate', () => {
+            const pct = (audio.currentTime / audio.duration) * 100;
+            progressFill.style.width = `${pct}%`;
+            document.getElementById('currentTime').textContent = formatTime(audio.currentTime);
+            if (currentTab === 'karaoke') updateKaraoke(audio.currentTime);
+        });
+
+        audio.addEventListener('loadedmetadata', () => {
+            document.getElementById('totalTime').textContent = formatTime(audio.duration);
+        });
+
+        audio.addEventListener('ended', nextTrack);
+
+        progressBar.addEventListener('click', e => {
+            const rect = progressBar.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            audio.currentTime = pct * audio.duration;
+        });
+
+        // Modal
+        function showLoadModal() {
+            document.getElementById('modalOverlay').classList.add('show');
+        }
+
+        function hideLoadModal() {
+            document.getElementById('modalOverlay').classList.remove('show');
+        }
+
+        function loadTimestamps() {
+            const input = document.getElementById('timestampInput').value.trim();
+            let words = [];
+
+            try {
+                if (input.startsWith('[') && input.includes('"word"')) {
+                    words = JSON.parse(input);
+                } else {
+                    const regex = /\[(\d{2}):(\d{2}\.\d{2})\]([^\[]+)/g;
+                    let m;
+                    while ((m = regex.exec(input)) !== null) {
+                        const start = parseInt(m[1]) * 60 + parseFloat(m[2]);
+                        const text = m[3].trim();
+                        if (text) words.push({ word: text, start, end: start + 0.5 });
+                    }
+                }
+
+                if (words.length > 0) {
+                    songs[currentIndex].words = words;
+                    renderKaraoke(songs[currentIndex]);
+                    hideLoadModal();
+                    setTab('karaoke');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Failed to parse timestamps');
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
