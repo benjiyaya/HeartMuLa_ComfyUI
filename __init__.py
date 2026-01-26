@@ -18,6 +18,7 @@ if "torchcodec" not in sys.modules:
         pass
 
 import gc
+import json
 import logging
 import os
 import uuid
@@ -195,7 +196,132 @@ class HeartMuLa_Generate:
         audio_output = {"waveform": waveform, "sample_rate": sample_rate}
         return (audio_output, out_path)
 
+
+# -----------------------------------------------------------------------------
+# Timestamp Formatting Utilities for Karaoke/Subtitle Output
+# -----------------------------------------------------------------------------
+# These functions convert Whisper's word-level timestamp output into standard
+# formats used by karaoke players, video editors, and other applications.
+# Whisper extracts word timing from cross-attention weights during decoding.
+# -----------------------------------------------------------------------------
+
+def _format_srt_time(seconds):
+    """Convert seconds to SRT timestamp format: HH:MM:SS,mmm"""
+    if seconds is None:
+        seconds = 0.0
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    millis = int((secs - int(secs)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{int(secs):02d},{millis:03d}"
+
+
+def _format_lrc_time(seconds):
+    """Convert seconds to LRC timestamp format: [mm:ss.xx]"""
+    if seconds is None:
+        seconds = 0.0
+    minutes = int(seconds // 60)
+    secs = seconds % 60
+    return f"{minutes:02d}:{secs:05.2f}"
+
+
+def _format_timestamps_srt(chunks):
+    """
+    Format word timestamps as SubRip (SRT) subtitle format.
+    
+    SRT is widely supported by video players and editors. Each word gets
+    its own subtitle entry with precise timing for karaoke-style display.
+    
+    Output format:
+        1
+        00:00:00,000 --> 00:00:00,520
+        Hello
+        
+        2
+        00:00:00,520 --> 00:00:01,040
+        world
+    """
+    lines = []
+    for i, chunk in enumerate(chunks, 1):
+        start, end = chunk.get("timestamp", (0.0, 0.0))
+        # Handle None timestamps (can occur at audio boundaries)
+        if start is None:
+            start = 0.0
+        if end is None:
+            end = start + 0.5  # Default 500ms duration
+        text = chunk.get("text", "").strip()
+        if text:
+            lines.append(str(i))
+            lines.append(f"{_format_srt_time(start)} --> {_format_srt_time(end)}")
+            lines.append(text)
+            lines.append("")
+    return "\n".join(lines)
+
+
+def _format_timestamps_lrc(chunks):
+    """
+    Format word timestamps as Enhanced LRC format for karaoke applications.
+    
+    LRC (LyRiCs) format is the standard for karaoke players. This uses
+    word-level timing where each word is prefixed with its start time.
+    
+    Output format:
+        [00:00.00]Hello [00:00.52]world [00:01.04]how [00:01.48]are [00:02.00]you
+    
+    Karaoke players highlight each word as its timestamp is reached.
+    """
+    words = []
+    for chunk in chunks:
+        start, _ = chunk.get("timestamp", (0.0, 0.0))
+        if start is None:
+            start = 0.0
+        text = chunk.get("text", "").strip()
+        if text:
+            words.append(f"[{_format_lrc_time(start)}]{text}")
+    return " ".join(words)
+
+
+def _format_timestamps_json(chunks):
+    """
+    Format word timestamps as JSON for programmatic use.
+    
+    Returns a JSON array with word, start time, and end time for each word.
+    Useful for building custom karaoke UIs or further processing.
+    
+    Output format:
+        [
+          {"word": "Hello", "start": 0.0, "end": 0.52},
+          {"word": "world", "start": 0.52, "end": 1.04}
+        ]
+    """
+    result = []
+    for chunk in chunks:
+        start, end = chunk.get("timestamp", (0.0, 0.0))
+        text = chunk.get("text", "").strip()
+        if text:
+            result.append({
+                "word": text,
+                "start": start if start is not None else 0.0,
+                "end": end if end is not None else (start or 0.0) + 0.5
+            })
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
 class HeartMuLa_Transcribe:
+    """
+    Lyrics transcription node using HeartTranscriptor (Whisper-based).
+    
+    Supports word-level timestamps for karaoke applications. Whisper extracts
+    timing information from cross-attention weights during decoding, providing
+    ~50-150ms accuracy which is sufficient for karaoke highlighting.
+    
+    Output formats:
+    - plain: Just the transcribed text (default)
+    - srt: SubRip subtitle format for video players
+    - lrc: LRC format for karaoke players (word-level timing)
+    - json: Structured JSON for programmatic use
+    """
+    
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -204,6 +330,10 @@ class HeartMuLa_Transcribe:
                 "temperature_tuple": ("STRING", {"default": "0.0,0.1,0.2,0.4"}),
                 "no_speech_threshold": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 1.0, "step": 0.05}),
                 "logprob_threshold": ("FLOAT", {"default": -1.0, "min": -5.0, "max": 5.0, "step": 0.1}),
+                # Word-level timestamps for karaoke - uses Whisper's cross-attention
+                "return_timestamps": (["none", "word"], {"default": "none"}),
+                # Output format selection
+                "output_format": (["plain", "srt", "lrc", "json"], {"default": "plain"}),
             }
         }
 
@@ -212,7 +342,8 @@ class HeartMuLa_Transcribe:
     FUNCTION = "transcribe"
     CATEGORY = "HeartMuLa"
 
-    def transcribe(self, audio_input, temperature_tuple, no_speech_threshold, logprob_threshold):
+    def transcribe(self, audio_input, temperature_tuple, no_speech_threshold, logprob_threshold, 
+                   return_timestamps="none", output_format="plain"):
         try:
             torchaudio.set_audio_backend("soundfile")
         except: pass
@@ -242,15 +373,41 @@ class HeartMuLa_Transcribe:
         manager = HeartMuLaModelManager()
         pipe = manager.get_transcribe_pipeline()
 
+        # Determine timestamp mode for Whisper pipeline
+        # "word" returns word-level timestamps from cross-attention weights
+        timestamps_param = "word" if return_timestamps == "word" else False
+
         try:
             with torch.inference_mode():
-                result = pipe(temp_path, temperature=temp_tuple, no_speech_threshold=no_speech_threshold, logprob_threshold=logprob_threshold, task="transcribe")
+                result = pipe(
+                    temp_path, 
+                    temperature=temp_tuple, 
+                    no_speech_threshold=no_speech_threshold, 
+                    logprob_threshold=logprob_threshold, 
+                    task="transcribe",
+                    return_timestamps=timestamps_param
+                )
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
             if torch.cuda.is_available(): torch.cuda.empty_cache()
             gc.collect()
 
-        text = result if isinstance(result, str) else result.get("text", str(result))
+        # Format output based on user selection
+        if return_timestamps == "word" and isinstance(result, dict) and "chunks" in result:
+            chunks = result["chunks"]
+            
+            if output_format == "srt":
+                text = _format_timestamps_srt(chunks)
+            elif output_format == "lrc":
+                text = _format_timestamps_lrc(chunks)
+            elif output_format == "json":
+                text = _format_timestamps_json(chunks)
+            else:  # plain - include timestamps inline
+                text = result.get("text", str(result))
+        else:
+            # No timestamps requested or not available - return plain text
+            text = result if isinstance(result, str) else result.get("text", str(result))
+        
         return (text,)
 
 NODE_CLASS_MAPPINGS = {

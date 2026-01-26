@@ -1,0 +1,6 @@
+# Ignore large audio files by default
+# Remove these lines if you want to include audio in git
+# *.wav
+# *.mp3
+# *.ogg
+# *.flac
