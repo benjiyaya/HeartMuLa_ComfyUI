@@ -140,18 +140,27 @@ class HeartMuLa(PreTrainedModel):
         )
 
     def generate_frame(self, tokens, tokens_mask, input_pos, temperature, topk, cfg_scale, continuous_segments=None, starts=None):
+        # 1. DEVICE FIX: Force masks to GPU to prevent device mismatch errors
+        if self.backbone_causal_mask.device != tokens.device:
+            self.backbone_causal_mask = self.backbone_causal_mask.to(tokens.device)
+        if self.decoder_causal_mask.device != tokens.device:
+            self.decoder_causal_mask = self.decoder_causal_mask.to(tokens.device)
+
         b, s, _ = tokens.size()
         curr_backbone_mask = _index_causal_mask(self.backbone_causal_mask, input_pos)
         uncond_mask = None
+        
         if cfg_scale > 1.0 and b > 1:
             actual_B = b // 2
             uncond_mask = torch.cat([
                 torch.zeros(actual_B, dtype=torch.bool, device=tokens.device),
                 torch.ones(actual_B, dtype=torch.bool, device=tokens.device),
             ])
+            
         embeds = self._embed_tokens(tokens, uncond_mask=uncond_mask)
         masked_embeds = embeds * tokens_mask.unsqueeze(-1)
         h = masked_embeds.sum(dim=2, dtype=embeds.dtype)
+        
         if continuous_segments is not None:
             continuous_segments = self.muq_linear(continuous_segments)
             if uncond_mask is not None:
@@ -160,33 +169,61 @@ class HeartMuLa(PreTrainedModel):
                 continuous_segments = torch.where(mask_expanded, uncond_embed, continuous_segments)
             batch_indices = torch.arange(h.shape[0], device=h.device)
             h[batch_indices, starts] = continuous_segments
+
+        # ================== ROPE & DEVICE FIX ==================
+        # Iterate over backbone and decoder to initialize RoPE and move caches to GPU
+        import itertools
+        all_modules = itertools.chain(self.backbone.modules(), self.decoder.modules())
+
+        for module in all_modules:
+            # Explicitly init the RoPE cache if required by newer torchtune versions
+            if hasattr(module, "rope_init"):
+                try:
+                    module.rope_init()
+                except Exception:
+                    pass
+            
+            # Force the cache buffer to the GPU (Fixes "indices on cpu" error)
+            if hasattr(module, "cache") and isinstance(module.cache, torch.Tensor):
+                if module.cache.device != tokens.device:
+                    module.cache = module.cache.to(tokens.device)
+        # ================== END FIX ==================
+
         h = self.backbone(h, input_pos=input_pos, mask=curr_backbone_mask)
+        
         last_h = h[:, -1, :]
         c0_logits = self.codebook0_head(last_h)
+        
         if cfg_scale > 1.0 and b > 1 and (b % 2 == 0):
             actual_B = b // 2
             guided_logits = c0_logits[actual_B:, :] + (c0_logits[:actual_B, :] - c0_logits[actual_B:, :]) * cfg_scale
             c0_sample = sample_topk(guided_logits, topk, temperature).repeat(2, 1)
         else:
             c0_sample = sample_topk(c0_logits, topk, temperature)
+            
         c0_embed = self._embed_audio(0, c0_sample)
         self.decoder.reset_caches()
+        
         curr_h = torch.cat([last_h.unsqueeze(1), c0_embed], dim=1).to(embeds.dtype)
         curr_sample = c0_sample.clone()
         curr_pos = torch.arange(0, curr_h.size(1), device=curr_h.device).unsqueeze(0).repeat(curr_h.size(0), 1)
+        
         for i in range(1, self.config.audio_num_codebooks):
             curr_decoder_mask = _index_causal_mask(self.decoder_causal_mask, curr_pos)
             decoder_h = self.decoder(self.projection(curr_h), input_pos=curr_pos, mask=curr_decoder_mask)
             ci_logits = torch.mm(decoder_h[:, -1, :], self.audio_head[i - 1])
+            
             if cfg_scale > 1.0 and b > 1 and (b % 2 == 0):
                 actual_B = b // 2
                 guided_ci = ci_logits[actual_B:, :] + (ci_logits[:actual_B, :] - ci_logits[actual_B:, :]) * cfg_scale
                 ci_sample = sample_topk(guided_ci, topk, temperature).repeat(2, 1)
             else:
                 ci_sample = sample_topk(ci_logits, topk, temperature)
+                
             ci_embed = self._embed_audio(i, ci_sample)
             curr_h, curr_sample = ci_embed, torch.cat([curr_sample, ci_sample], dim=1)
             curr_pos = curr_pos[:, -1:] + 1
+            
         return curr_sample
 
     def reset_caches(self):
