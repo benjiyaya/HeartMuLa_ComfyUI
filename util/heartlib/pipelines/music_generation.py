@@ -71,7 +71,7 @@ class HeartMuLaGenPipeline:
 
     def load_heartcodec(self):
         if self.audio_codec is None:
-            self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path)
+            self.audio_codec = HeartCodec.from_pretrained(self.heartcodec_path, ignore_mismatched_sizes=True)
         if str(next(self.audio_codec.parameters()).device) != str(self.device):
             self.audio_codec.to(self.device)
         self.audio_codec.eval()
