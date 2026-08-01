@@ -7,6 +7,11 @@ import numpy as np
 import torch
 import torchaudio
 
+if __package__:
+    from .minimax_music_cover import MiniMax_MusicCover
+else:
+    from minimax_music_cover import MiniMax_MusicCover
+
 # ----------------------------
 # Add Local HeartLib to Path
 # ----------------------------
@@ -244,11 +249,13 @@ class HeartMuLa_Transcribe:
 NODE_CLASS_MAPPINGS = {
     "HeartMuLa_Generate": HeartMuLa_Generate,
     "HeartMuLa_Transcribe": HeartMuLa_Transcribe,
+    "MiniMax_MusicCover": MiniMax_MusicCover,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLa_Generate": "HeartMuLa Music Generator",
     "HeartMuLa_Transcribe": "HeartMuLa Lyrics Transcriber",
+    "MiniMax_MusicCover": "MiniMax Music Cover",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
